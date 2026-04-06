@@ -23,6 +23,26 @@ this repository is intentionally built around the round 1 submission contract:
 
 the benchmark focuses on linux remediation rather than toy puzzle solving. the agent is not selecting from a fixed action list: it must decide which shell command to run, interpret command output, repair the underlying fault, and stop before wasting steps.
 
+## table of contents
+
+- [why linux remediation is a meaningful benchmark](#why-linux-remediation-is-a-meaningful-benchmark)
+- [round 1 requirement mapping](#round-1-requirement-mapping)
+- [high-level architecture](#high-level-architecture)
+- [repository layout and file roles](#repository-layout-and-file-roles)
+- [runtime model actions observations state and episode boundaries](#runtime-model-actions-observations-state-and-episode-boundaries)
+- [api reference](#api-reference)
+- [sandbox and filesystem model](#sandbox-and-filesystem-model)
+- [task suite](#task-suite)
+- [reward and scoring system](#reward-and-scoring-system)
+- [local setup](#local-setup)
+- [running the server locally](#running-the-server-locally)
+- [inference usage](#inference-usage)
+- [validation flow](#validation-flow)
+- [docker and deployment flow](#docker-and-deployment-flow)
+- [mathematical summary of each task’s total raw return](#mathematical-summary-of-each-tasks-total-raw-return)
+- [limitations and portability notes](#limitations-and-portability-notes)
+- [practical quickstart](#practical-quickstart)
+
 ## why linux remediation is a meaningful benchmark
 
 linux incident response is one of the few domains where agentic reasoning is both measurable and genuinely useful.
