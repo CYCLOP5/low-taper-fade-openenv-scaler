@@ -18,9 +18,8 @@ class FakeResponse:
 
 
 class FakeAsyncClient:
-    def __init__(self, *, get_payload: dict | None = None, post_status_code: int = 200):
+    def __init__(self, *, get_payload: dict | None = None):
         self.get_payload = get_payload or {}
-        self.post_status_code = post_status_code
 
     async def __aenter__(self):
         return self
@@ -31,8 +30,40 @@ class FakeAsyncClient:
     async def get(self, _url: str):
         return FakeResponse(200, self.get_payload)
 
-    async def post(self, _url: str, headers: dict, json: dict):
-        return FakeResponse(self.post_status_code, {})
+
+class FakeOpenAIResponse:
+    def __init__(self, output_text: str = '{"command": "echo ready", "reasoning": "safe step"}', status: str = "completed"):
+        self.output_text = output_text
+        self.status = status
+        self.incomplete_details = None
+
+
+class FakeResponsesApi:
+    def __init__(self, *, response: FakeOpenAIResponse | None = None, exc: Exception | None = None):
+        self.response = response or FakeOpenAIResponse()
+        self.exc = exc
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.exc is not None:
+            raise self.exc
+        return self.response
+
+
+class FakeOpenAIClient:
+    def __init__(self, *, response: FakeOpenAIResponse | None = None, exc: Exception | None = None):
+        self.responses = FakeResponsesApi(response=response, exc=exc)
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class FakeStatusError(Exception):
+    def __init__(self, status_code: int):
+        super().__init__(f"status {status_code}")
+        self.status_code = status_code
 
 
 class FakeWebSocket:
@@ -89,7 +120,7 @@ def _config() -> inference_module.AgentConfig:
         server_url="ws://127.0.0.1:8000/ws",
         healthcheck_url="http://127.0.0.1:8000/health",
         tasks_url="http://127.0.0.1:8000/tasks",
-        model_api_url="https://example.invalid",
+        model_api_url="https://api.openai.com/v1",
         model_name="test-model",
         reasoning_effort=None,
         api_key=None,
@@ -104,7 +135,7 @@ def test_load_task_sequence_uses_explicit_task_id_without_http():
         server_url="ws://127.0.0.1:8000/ws",
         healthcheck_url="http://127.0.0.1:8000/health",
         tasks_url="http://127.0.0.1:8000/tasks",
-        model_api_url="https://example.invalid",
+        model_api_url="https://api.openai.com/v1",
         model_name="test-model",
         reasoning_effort=None,
         api_key=None,
@@ -136,18 +167,22 @@ def test_load_task_sequence_reads_tasks_endpoint(monkeypatch):
     assert result == ["nginx_crash", "disk_full", "network_broken"]
 
 
-def test_load_config_reads_dotenv_file(monkeypatch, tmp_path: Path):
+def test_load_config_reads_required_env_names(monkeypatch, tmp_path: Path):
     dotenv_path = tmp_path / ".env"
     dotenv_path.write_text(
-        "OPENAI_API_KEY=dotenv_key\n"
-        "OPENAI_MODEL=dotenv_model\n"
-        "OPENAI_REASONING_EFFORT=low\n"
+        "HF_TOKEN=dotenv_key\n"
+        "MODEL_NAME=dotenv_model\n"
+        "API_BASE_URL=https://example.test/v1\n"
+        "OPENAI_REASONING_EFFORT=medium\n"
         "SYSADMIN_ENV_TASK_ID=disk_full\n"
     )
 
     for key in [
+        "HF_TOKEN",
         "OPENAI_API_KEY",
         "API_KEY",
+        "API_BASE_URL",
+        "OPENAI_BASE_URL",
         "OPENAI_MODEL",
         "MODEL_NAME",
         "OPENAI_REASONING_EFFORT",
@@ -161,18 +196,43 @@ def test_load_config_reads_dotenv_file(monkeypatch, tmp_path: Path):
 
     assert config.api_key == "dotenv_key"
     assert config.model_name == "dotenv_model"
-    assert config.reasoning_effort == "low"
+    assert config.model_api_url == "https://example.test/v1"
+    assert config.reasoning_effort == "medium"
     assert config.task_id == "disk_full"
 
 
-def test_build_model_request_payload_uses_responses_api_reasoning_effort():
+def test_load_config_prefers_current_working_directory_dotenv(monkeypatch, tmp_path: Path):
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text(
+        "MODEL_NAME=cwd_model\n"
+        "API_BASE_URL=https://cwd.example/v1\n"
+    )
+
+    for key in [
+        "SYSADMIN_ENV_DOTENV_PATH",
+        "MODEL_NAME",
+        "OPENAI_MODEL",
+        "API_BASE_URL",
+        "OPENAI_BASE_URL",
+    ]:
+        monkeypatch.delenv(key, raising=False)
+
+    monkeypatch.chdir(tmp_path)
+
+    config = inference_module.load_config()
+
+    assert config.model_name == "cwd_model"
+    assert config.model_api_url == "https://cwd.example/v1"
+
+
+def test_build_model_request_payload_uses_openai_responses_shape():
     config = inference_module.AgentConfig(
         server_url="ws://127.0.0.1:8000/ws",
         healthcheck_url="http://127.0.0.1:8000/health",
         tasks_url="http://127.0.0.1:8000/tasks",
-        model_api_url="https://api.openai.com/v1/responses",
+        model_api_url="https://api.openai.com/v1",
         model_name="gpt-5.4-nano",
-        reasoning_effort="low",
+        reasoning_effort="medium",
         api_key="test-key",
         api_timeout=1.0,
         episode_timeout=5.0,
@@ -187,15 +247,16 @@ def test_build_model_request_payload_uses_responses_api_reasoning_effort():
     )
 
     assert payload["model"] == "gpt-5.4-nano"
-    assert payload["reasoning"] == {"effort": "low"}
+    assert payload["reasoning"] == {"effort": "medium"}
+    assert "instructions" in payload
     assert "input" in payload
 
 
 def test_request_model_action_returns_none_on_rate_limit(monkeypatch, capsys):
     monkeypatch.setattr(
-        inference_module.httpx,
-        "AsyncClient",
-        lambda timeout: FakeAsyncClient(post_status_code=429),
+        inference_module,
+        "_create_openai_client",
+        lambda config: FakeOpenAIClient(exc=FakeStatusError(429)),
     )
 
     result = asyncio.run(
@@ -208,7 +269,40 @@ def test_request_model_action_returns_none_on_rate_limit(monkeypatch, capsys):
     )
 
     assert result is None
-    assert "step api 429" in capsys.readouterr().out
+    assert "step api 429" in capsys.readouterr().err
+
+
+def test_request_model_action_parses_json_output(monkeypatch):
+    monkeypatch.setattr(
+        inference_module,
+        "_create_openai_client",
+        lambda config: FakeOpenAIClient(response=FakeOpenAIResponse('{"command": "echo ready", "reasoning": "repair now"}')),
+    )
+
+    result = asyncio.run(
+        inference_module.request_model_action(
+            inference_module.AgentConfig(
+                server_url="ws://127.0.0.1:8000/ws",
+                healthcheck_url="http://127.0.0.1:8000/health",
+                tasks_url="http://127.0.0.1:8000/tasks",
+                model_api_url="https://api.openai.com/v1",
+                model_name="test-model",
+                reasoning_effort=None,
+                api_key="test-key",
+                api_timeout=1.0,
+                episode_timeout=5.0,
+                task_id=None,
+            ),
+            {"task_id": "nginx_crash"},
+            None,
+            [],
+        )
+    )
+
+    assert result is not None
+    assert result.command == "echo ready"
+    assert result.reasoning == "repair now"
+    assert result.source == "model"
 
 
 def test_run_episode_sends_action_and_emits_step_tags(monkeypatch, capsys):
@@ -228,12 +322,13 @@ def test_run_episode_sends_action_and_emits_step_tags(monkeypatch, capsys):
         lambda url, open_timeout: FakeConnect(websocket),
     )
 
-    asyncio.run(inference_module.run_episode(_config(), "nginx_crash"))
+    summary = asyncio.run(inference_module.run_episode(_config(), "nginx_crash"))
 
     output = capsys.readouterr().out
-    assert "[step]" in output
-    assert "episode_started" in output
+    assert "[STEP]" in output
     assert "echo ready" in output
+    assert summary.success is True
+    assert summary.steps == 1
     assert websocket.sent_messages == [{"command": "echo ready", "reasoning": "fallback heuristic"}]
 
 
@@ -245,7 +340,13 @@ def test_run_emits_start_and_end_tags_for_each_episode(monkeypatch, capsys):
         return ["nginx_crash", "disk_full"]
 
     async def fake_run_episode(config, task_id):
-        print(f"[step] {{\"task_id\": \"{task_id}\"}}")
+        return inference_module.EpisodeSummary(
+            task_id=task_id,
+            success=True,
+            steps=1,
+            score=1.0,
+            rewards=[1.0],
+        )
 
     monkeypatch.setattr(inference_module, "verify_server", fake_verify_server)
     monkeypatch.setattr(inference_module, "load_task_sequence", fake_load_task_sequence)
@@ -255,10 +356,15 @@ def test_run_emits_start_and_end_tags_for_each_episode(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert exit_code == 0
-    assert output.count("[start]") == 2
-    assert output.count("[end]") == 2
+    assert output.count("[START]") == 2
+    assert output.count("[END]") == 2
     assert "nginx_crash" in output
     assert "disk_full" in output
+
+
+def test_normalize_openai_base_url_strips_responses_suffix():
+    assert inference_module._normalize_openai_base_url("https://api.openai.com/v1/responses") == "https://api.openai.com/v1"
+    assert inference_module._normalize_openai_base_url("https://api.openai.com/v1") == "https://api.openai.com/v1"
 
 
 def test_heuristic_action_produces_task_specific_safe_commands():

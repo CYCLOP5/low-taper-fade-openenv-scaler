@@ -4,10 +4,14 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
+import tempfile
 import time
 
 
-PYTHON_BIN = "/home/cyclops/miniforge3/envs/metascaler/bin/python"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PYTHON_BIN = sys.executable
+INFERENCE_PATH = PROJECT_ROOT / "inference.py"
 
 
 def _read_rss_kb(pid: int) -> int:
@@ -59,14 +63,14 @@ def _run_full_cycle(port: int) -> dict[str, float | int | str]:
     env["SYSADMIN_ENV_HEALTHCHECK_URL"] = f"http://127.0.0.1:{port}/health"
     env["SYSADMIN_ENV_TASKS_URL"] = f"http://127.0.0.1:{port}/tasks"
     env["SYSADMIN_ENV_TASK_ID"] = ""
-    env["SYSADMIN_ENV_DOTENV_PATH"] = str(Path(f"/tmp/sysadmin_env_missing_dotenv_{port}"))
+    env["SYSADMIN_ENV_DOTENV_PATH"] = str(Path(tempfile.gettempdir()) / f"sysadmin_env_missing_dotenv_{port}")
 
     server = subprocess.Popen(
         [
             PYTHON_BIN,
             "-m",
             "uvicorn",
-            "sysadmin_env.server:app",
+            "server.app:app",
             "--host",
             "127.0.0.1",
             "--port",
@@ -76,6 +80,7 @@ def _run_full_cycle(port: int) -> dict[str, float | int | str]:
         stderr=subprocess.STDOUT,
         text=True,
         env=env,
+        cwd=PROJECT_ROOT,
     )
 
     peak_rss_kb = 0
@@ -86,11 +91,12 @@ def _run_full_cycle(port: int) -> dict[str, float | int | str]:
         _wait_for_health(port)
 
         inference = subprocess.Popen(
-            [PYTHON_BIN, "inference.py"],
+            [PYTHON_BIN, str(INFERENCE_PATH)],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             env=env,
+            cwd=PROJECT_ROOT,
         )
 
         while inference.poll() is None:
@@ -131,9 +137,9 @@ def test_three_consecutive_clean_runs_stay_within_phase_eight_envelope():
         runs.append(run)
 
         output = str(run["output"])
-        assert output.count("[start]") == 3
-        assert output.count("[end]") == 3
-        assert output.count("episode reward") == 3
+        assert output.count("[START]") == 3
+        assert output.count("[END]") == 3
+        assert output.count("[STEP]") >= 3
         assert "nginx_crash" in output
         assert "disk_full" in output
         assert "network_broken" in output

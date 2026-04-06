@@ -6,15 +6,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
+from uuid import uuid4
 
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi import WebSocket
 from fastapi import WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from sysadmin_env.models import Action
+from sysadmin_env.models import EnvironmentState
 from sysadmin_env.models import Observation
+from sysadmin_env.models import ResetRequest
+from sysadmin_env.models import StepRequest
+from sysadmin_env.models import StepResult
 from sysadmin_env.models import TaskScenarioDefinition
 from sysadmin_env.rewards import EpisodeRewardState
 from sysadmin_env.rewards import RewardEngine
@@ -32,6 +38,14 @@ class EpisodeState:
     reward_state: EpisodeRewardState
     max_steps: int
     step_number: int = 0
+
+
+@dataclass
+class HttpSessionState:
+    episode_id: str | None = None
+    episode: EpisodeState | None = None
+    last_observation: Observation | None = None
+    last_state: EnvironmentState | None = None
 
 
 class EpisodeManager:
@@ -133,14 +147,73 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
+            session: HttpSessionState = app.state.http_session
+            if session.episode is not None:
+                manager.cleanup_episode(session.episode)
             manager.shutdown()
 
     app = FastAPI(lifespan=lifespan)
     app.state.episode_manager = manager
+    app.state.http_session = HttpSessionState()
 
     @app.get("/health")
     async def health() -> JSONResponse:
         return JSONResponse({"status": "ok"})
+
+    @app.post("/reset", response_model=StepResult)
+    async def reset(payload: ResetRequest | None = None) -> StepResult:
+        manager: EpisodeManager = app.state.episode_manager
+        session: HttpSessionState = app.state.http_session
+        if session.episode is not None:
+            manager.cleanup_episode(session.episode)
+
+        requested_task_id = payload.task_id if payload is not None else None
+        try:
+            episode = manager.start_episode(task_id=requested_task_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="unknown task id") from exc
+
+        observation = Observation(
+            stdout="",
+            stderr="",
+            exit_code=0,
+            working_directory=str(getattr(episode.sandbox, "merged_root", Path("/"))),
+            execution_time=0.0,
+            reward=0.0,
+            done=False,
+            step_number=0,
+            max_steps=episode.max_steps,
+        )
+        state = _build_environment_state(episode, uuid4().hex, observation)
+        session.episode_id = state.episode_id
+        session.episode = episode
+        session.last_observation = observation
+        session.last_state = state
+        return StepResult(observation=observation, state=state)
+
+    @app.post("/step", response_model=StepResult)
+    async def step(payload: StepRequest) -> StepResult:
+        manager: EpisodeManager = app.state.episode_manager
+        session: HttpSessionState = app.state.http_session
+        if session.episode is None or session.episode_id is None:
+            raise HTTPException(status_code=409, detail="episode not initialized")
+
+        command_result = await session.episode.sandbox.execute_async(payload.action.command)
+        observation = _build_observation(manager, session.episode, payload.action.command, command_result)
+        state = _build_environment_state(session.episode, session.episode_id, observation)
+        session.last_observation = observation
+        session.last_state = state
+        if observation.done:
+            manager.cleanup_episode(session.episode)
+            session.episode = None
+        return StepResult(observation=observation, state=state)
+
+    @app.get("/state", response_model=EnvironmentState)
+    async def state() -> EnvironmentState:
+        session: HttpSessionState = app.state.http_session
+        if session.last_state is None:
+            raise HTTPException(status_code=404, detail="episode not initialized")
+        return session.last_state
 
     @app.get("/tasks")
     async def tasks() -> JSONResponse:
@@ -248,6 +321,17 @@ def _merge_stderr(stderr: str, extra: str) -> str:
     if not stderr:
         return extra
     return f"{stderr.rstrip()}\n{extra}"
+
+
+def _build_environment_state(episode: EpisodeState, episode_id: str, observation: Observation) -> EnvironmentState:
+    return EnvironmentState(
+        episode_id=episode_id,
+        task_id=episode.task_id,
+        step_count=observation.step_number,
+        max_steps=episode.max_steps,
+        done=observation.done,
+        reward=observation.reward,
+    )
 
 
 def _runtime_root_for_definition(sandbox: Sandbox, definition: TaskScenarioDefinition) -> Path:

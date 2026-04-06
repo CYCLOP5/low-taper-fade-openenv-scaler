@@ -67,6 +67,33 @@ def test_tasks_endpoint_returns_registered_scenarios(monkeypatch):
     assert {task["task_id"] for task in payload["tasks"]} == {"nginx_crash", "disk_full", "network_broken"}
 
 
+def test_http_reset_step_and_state_contract(monkeypatch):
+    client = _make_client(monkeypatch)
+
+    reset_response = client.post("/reset", json={"task_id": "nginx_crash"})
+    assert reset_response.status_code == 200
+    reset_payload = reset_response.json()
+    assert reset_payload["state"]["task_id"] == "nginx_crash"
+    assert reset_payload["state"]["step_count"] == 0
+    assert reset_payload["observation"]["done"] is False
+
+    step_response = client.post("/step", json={"action": {"command": "echo hello"}})
+    assert step_response.status_code == 200
+    step_payload = step_response.json()
+    assert step_payload["observation"]["stdout"] == "ran echo hello"
+    assert step_payload["state"]["step_count"] == 1
+
+    state_response = client.get("/state")
+    assert state_response.status_code == 200
+    assert state_response.json()["step_count"] == 1
+
+
+def test_http_step_requires_reset(monkeypatch):
+    client = _make_client(monkeypatch)
+    response = client.post("/step", json={"action": {"command": "echo hello"}})
+    assert response.status_code == 409
+
+
 def test_websocket_handles_valid_invalid_and_timeout_actions(monkeypatch):
     client = _make_client(monkeypatch)
 

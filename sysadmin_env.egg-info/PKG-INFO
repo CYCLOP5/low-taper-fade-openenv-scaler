@@ -1,3 +1,20 @@
+Metadata-Version: 2.4
+Name: sysadmin-env
+Version: 0.2.0
+Summary: OpenEnv-style environment for linux server auto remediation tasks
+Author: sysadmin env contributors
+Requires-Python: <3.14,>=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi==0.115.12
+Requires-Dist: uvicorn==0.34.2
+Requires-Dist: pydantic==2.11.1
+Requires-Dist: websockets==15.0.1
+Requires-Dist: httpx==0.28.1
+Requires-Dist: openenv-core>=0.2.0
+Requires-Dist: openai==2.11.0
+Provides-Extra: dev
+Requires-Dist: pytest==8.3.5; extra == "dev"
+
 ---
 title: sysadmin env
 colorFrom: blue
@@ -119,7 +136,7 @@ reward is shaped over the full trajectory.
 the baseline inference script supports the required submission variables.
 
 ```dotenv
-# submission credential used by the baseline agent.
+# preferred submission credential. `OPENAI_API_KEY` and `API_KEY` are also accepted.
 HF_TOKEN="your_api_key_here"
 MODEL_NAME="gpt-5.4"
 API_BASE_URL="https://api.openai.com/v1"
@@ -137,13 +154,6 @@ EPISODE_TIMEOUT_SECONDS="600"
 
 this repository follows the standard layout expected after `openenv init`.
 
-`openenv push` performs a stricter structure check than `openenv validate`. to satisfy that check, the repository includes thin required shim files at the root and under `server/`.
-
-- `__init__.py`
-- `client.py`
-- `models.py`
-- `server/Dockerfile`
-
 ```bash
 openenv validate
 ```
@@ -160,7 +170,7 @@ for reproducible local setup, `pyproject.toml` and `uv.lock` define the environm
 uv sync --extra dev
 ```
 
-the repository targets python 3.11 for validator parity and includes `.python-version` for `uv` discovery. if your host only exposes a newer interpreter outside this supported range, install the matching runtime first.
+the repository targets python 3.11 for validator parity and includes `.python-version` for `uv` discovery. if your host only exposes a newer incompatible interpreter, install the matching runtime first.
 
 ```bash
 uv python install 3.11
@@ -231,8 +241,6 @@ if you already have the dependencies installed in an active environment, `python
 this repository is prepared for a Hugging Face docker space and the runtime entrypoint is defined in `Dockerfile`.
 
 the root `Dockerfile` installs from `pyproject.toml` and `uv.lock` via `uv sync --locked`, then starts the environment with `uv run server`.
-
-for `openenv push`, the CLI stages the repository and promotes `server/Dockerfile` to the deployment root. `server/Dockerfile` mirrors the same metadata driven build path so local docker builds and pushed builds stay aligned.
 
 ```bash
 docker build -t sysadmin-env .

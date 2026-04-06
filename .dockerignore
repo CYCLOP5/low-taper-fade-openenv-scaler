@@ -1,0 +1,37 @@
+# secrets and local environment files
+.env
+.env.*
+!.env.example
+
+# version control and editor state
+.git/
+.github/
+.roo/
+.vscode/
+.idea/
+
+# python caches, virtualenvs, and build artifacts
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# test, docs, and local notes not needed in the runtime image
+tests/
+markdownstochat/
+
+# runtime state and local outputs
+assets/runtime/
+output.txt
+*.log
+.coverage
+htmlcov/

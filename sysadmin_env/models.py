@@ -28,6 +28,28 @@ class Observation(BaseModel):
     max_steps: int = Field(gt=0)
 
 
+class EnvironmentState(BaseModel):
+    episode_id: str = Field(min_length=1)
+    task_id: str = Field(min_length=1)
+    step_count: int = Field(ge=0)
+    max_steps: int = Field(gt=0)
+    done: bool
+    reward: float
+
+
+class ResetRequest(BaseModel):
+    task_id: Optional[str] = None
+
+
+class StepRequest(BaseModel):
+    action: Action
+
+
+class StepResult(BaseModel):
+    observation: Observation
+    state: EnvironmentState
+
+
 class TaskMetadata(BaseModel):
     task_id: str = Field(min_length=1)
     difficulty: DifficultyTier

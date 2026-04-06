@@ -5,7 +5,10 @@ description: reinforcement learning environment for linux server auto remediatio
 runtime:
   python: "3.11"
   entry_point: inference.py
-  server_entry_point: sysadmin_env.server:app
+  server_entry_point: server.app:app
+  reset_endpoint: /reset
+  step_endpoint: /step
+  state_endpoint: /state
   websocket_endpoint: /ws
   healthcheck_endpoint: /health
   tasks_endpoint: /tasks
