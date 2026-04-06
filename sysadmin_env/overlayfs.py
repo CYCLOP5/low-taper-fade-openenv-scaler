@@ -86,15 +86,31 @@ class OverlayFSManager:
             raise RuntimeError("create stack must be called before mount")
 
         try:
+            print("overlay kernel mount start")
             self._mount_kernel()
             self._mount_type = "kernel"
             print("overlay mounted via kernel overlayfs")
-        except (PermissionError, OSError, subprocess.CalledProcessError):
-            self._mount_fuse()
-            self._mount_type = "fuse"
-            print("overlay mounted via fuse overlayfs")
+        except (PermissionError, OSError, subprocess.CalledProcessError) as exc:
+            print(f"overlay kernel mount failed {type(exc).__name__.lower()}")
+            try:
+                print("overlay fuse mount start")
+                self._mount_fuse()
+                self._mount_type = "fuse"
+                print("overlay mounted via fuse overlayfs")
+            except (FileNotFoundError, OSError, subprocess.CalledProcessError) as fuse_exc:
+                print(f"overlay fuse mount failed {type(fuse_exc).__name__.lower()}")
+                self._mount_copy()
+                self._mount_type = "copy"
+                print("overlay mounted via copy fallback")
 
         self._mounted = True
+
+    def _mount_copy(self) -> None:
+        if self._lowerdir is None or self._merged is None:
+            raise RuntimeError("copy fallback requires lowerdir and merged path")
+
+        self._clear_directory(self._merged)
+        shutil.copytree(self._lowerdir, self._merged, dirs_exist_ok=True, symlinks=True)
 
     def _mount_kernel(self) -> None:
         mount_opts = (
@@ -115,6 +131,7 @@ class OverlayFSManager:
         fuse_bin = shutil.which("fuse-overlayfs")
         if fuse_bin is None:
             raise FileNotFoundError("fuse-overlayfs binary not found in path")
+        print(f"overlay fuse binary {fuse_bin}")
 
         mount_opts = (
             f"lowerdir={self._lowerdir},"
@@ -142,27 +159,33 @@ class OverlayFSManager:
 
         mount_type = self._mount_type
 
-        self.unmount()
-
-        for entry in self._upperdir.iterdir():
-            if entry.is_dir():
-                shutil.rmtree(entry)
-            else:
-                entry.unlink()
-
-        if self._workdir.exists():
-            shutil.rmtree(self._workdir)
-        self._workdir.mkdir()
-
-        if self._merged is not None:
-            self._merged.mkdir(exist_ok=True)
-
-        if mount_type == "kernel":
-            self._mount_kernel()
-            self._mount_type = "kernel"
+        if mount_type == "copy":
+            if self._merged is None:
+                raise RuntimeError("copy fallback merged path missing")
+            self._mount_copy()
+            self._mount_type = "copy"
         else:
-            self._mount_fuse()
-            self._mount_type = "fuse"
+            self.unmount()
+
+            for entry in self._upperdir.iterdir():
+                if entry.is_dir():
+                    shutil.rmtree(entry)
+                else:
+                    entry.unlink()
+
+            if self._workdir.exists():
+                shutil.rmtree(self._workdir)
+            self._workdir.mkdir()
+
+            if self._merged is not None:
+                self._merged.mkdir(exist_ok=True)
+
+            if mount_type == "kernel":
+                self._mount_kernel()
+                self._mount_type = "kernel"
+            else:
+                self._mount_fuse()
+                self._mount_type = "fuse"
 
         self._mounted = True
 
@@ -174,6 +197,12 @@ class OverlayFSManager:
     def unmount(self) -> None:
         """unmounts the overlay filesystem"""
         if not self._mounted:
+            return
+
+        if self._mount_type == "copy":
+            self._mounted = False
+            self._mount_type = None
+            print("overlay unmounted")
             return
 
         if self._mount_type == "fuse":
@@ -201,6 +230,14 @@ class OverlayFSManager:
         self._mounted = False
         self._mount_type = None
         print("overlay unmounted")
+
+    def _clear_directory(self, directory: Path) -> None:
+        directory.mkdir(parents=True, exist_ok=True)
+        for entry in directory.iterdir():
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
 
     def cleanup(self) -> None:
         """unmounts if mounted and removes all overlay directories"""

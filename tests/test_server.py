@@ -94,6 +94,60 @@ def test_http_step_requires_reset(monkeypatch):
     assert response.status_code == 409
 
 
+def test_web_routes_expose_compatibility_shim_and_delegate_to_current_environment(monkeypatch):
+    client = _make_client(monkeypatch)
+
+    web_response = client.get("/web")
+    assert web_response.status_code == 200
+    assert "sysadmin-env web compatibility shim" in web_response.text
+
+    metadata_response = client.get("/web/metadata")
+    assert metadata_response.status_code == 200
+    metadata_payload = metadata_response.json()
+    assert metadata_payload["name"] == "sysadmin-env"
+    assert "OpenEnv-compatible web shim routes" in metadata_payload["description"]
+
+    pre_reset_state_response = client.get("/web/state")
+    assert pre_reset_state_response.status_code == 200
+    assert pre_reset_state_response.json() == {
+        "episode_id": None,
+        "task_id": None,
+        "step_count": 0,
+        "max_steps": 0,
+        "done": False,
+        "reward": 0.0,
+        "initialized": False,
+    }
+
+    reset_response = client.post("/web/reset", json={"task_id": "nginx_crash"})
+    assert reset_response.status_code == 200
+    reset_payload = reset_response.json()
+    assert reset_payload["state"]["task_id"] == "nginx_crash"
+    assert reset_payload["observation"]["step_number"] == 0
+    assert reset_payload["reward"] == 0.0
+    assert reset_payload["done"] is False
+
+    step_response = client.post("/web/step", json={"action": {"command": "echo hello"}})
+    assert step_response.status_code == 200
+    step_payload = step_response.json()
+    assert step_payload["observation"]["stdout"] == "ran echo hello"
+    assert step_payload["state"]["step_count"] == 1
+    assert step_payload["reward"] == step_payload["observation"]["reward"]
+    assert step_payload["done"] is False
+
+    post_step_state_response = client.get("/web/state")
+    assert post_step_state_response.status_code == 200
+    assert post_step_state_response.json() == {
+        "episode_id": reset_payload["state"]["episode_id"],
+        "task_id": "nginx_crash",
+        "step_count": 1,
+        "max_steps": 40,
+        "done": False,
+        "reward": step_payload["reward"],
+        "initialized": True,
+    }
+
+
 def test_websocket_handles_valid_invalid_and_timeout_actions(monkeypatch):
     client = _make_client(monkeypatch)
 

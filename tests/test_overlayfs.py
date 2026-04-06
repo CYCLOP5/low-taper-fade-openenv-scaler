@@ -220,6 +220,39 @@ def test_context_manager_cleanup():
         print("context manager cleanup passed")
 
 
+def test_copy_fallback_when_overlay_mounts_are_unavailable(monkeypatch):
+    print("\n--- test copy fallback when overlay unavailable ---")
+    with tempfile.TemporaryDirectory(prefix="test_lower_") as lowerdir:
+        Path(lowerdir, "base.txt").write_text("base content")
+
+        with OverlayFSManager() as manager:
+            merged = manager.create_stack(lowerdir)
+
+            def fail_kernel():
+                raise PermissionError("kernel denied")
+
+            def fail_fuse():
+                raise OSError("fuse unavailable")
+
+            monkeypatch.setattr(manager, "_mount_kernel", fail_kernel)
+            monkeypatch.setattr(manager, "_mount_fuse", fail_fuse)
+
+            manager.mount()
+
+            assert manager.mount_type == "copy"
+            assert (merged / "base.txt").read_text() == "base content"
+
+            (merged / "ephemeral.txt").write_text("ephemeral")
+            assert (merged / "ephemeral.txt").exists()
+
+            latency = manager.reset()
+
+            assert latency >= 0.0
+            assert not (merged / "ephemeral.txt").exists()
+            assert (merged / "base.txt").read_text() == "base content"
+            print("copy fallback reset passed")
+
+
 def main():
     check_fuse_overlayfs_available()
 
@@ -235,6 +268,7 @@ def main():
         test_mount_before_create_rejected,
         test_reset_before_mount_rejected,
         test_context_manager_cleanup,
+        test_copy_fallback_when_overlay_mounts_are_unavailable,
     ]
 
     passed = 0

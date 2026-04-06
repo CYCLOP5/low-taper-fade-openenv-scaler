@@ -1,5 +1,7 @@
 README.md
+client.py
 inference.py
+models.py
 pyproject.toml
 server/__init__.py
 server/app.py

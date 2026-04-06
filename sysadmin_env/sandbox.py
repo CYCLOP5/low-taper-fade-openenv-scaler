@@ -73,16 +73,29 @@ class Sandbox:
         if self._destroyed:
             raise RuntimeError("sandbox has been destroyed and cannot be recreated")
 
+        print("sandbox verify bwrap start")
         self._verify_bwrap_available()
+        print("sandbox verify bwrap complete")
+        print(f"sandbox create stack {self._lowerdir}")
         self._overlay.create_stack(self._lowerdir)
-        self._overlay.mount()
+        print("sandbox overlay mount start")
+        try:
+            self._overlay.mount()
+        except Exception as exc:
+            print(f"sandbox overlay mount failed {type(exc).__name__.lower()}")
+            raise
+        print("sandbox overlay mount complete")
+        print("sandbox runtime layout start")
         self._ensure_runtime_layout()
+        print("sandbox runtime layout complete")
         self._created = True
         print("sandbox created")
 
     def _verify_bwrap_available(self) -> None:
-        if shutil.which("bwrap") is None:
+        bwrap_bin = shutil.which("bwrap")
+        if bwrap_bin is None:
             raise FileNotFoundError("bwrap binary not found in path")
+        print(f"sandbox bwrap found {bwrap_bin}")
 
     def _ensure_runtime_layout(self) -> None:
         if self._overlay.merged is None:

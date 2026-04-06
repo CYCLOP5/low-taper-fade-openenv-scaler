@@ -147,7 +147,7 @@ def test_deployment_files_reference_hugging_face_and_openenv_workflow():
     assert 'EXPOSE 8000' in dockerfile
     assert 'EXPOSE 8000' in server_dockerfile
     assert 'sdk: docker' in readme
-    assert 'Hugging Face' in readme
+    assert 'hugging face' in readme
     assert 'openenv' in readme
     assert 'openenv init' in readme
     assert 'openenv validate' in readme
@@ -173,7 +173,8 @@ def test_deployment_files_reference_hugging_face_and_openenv_workflow():
     assert '/home/cyclops' not in readme
     assert 'mamba activate' not in readme
     assert 'legacy' not in readme.lower()
-    assert 'compatib' not in readme.lower()
+    assert 'web shim routes' in readme
+    assert 'openai-compatible endpoint' in readme or 'openai-compatible endpoints' in readme
     assert 'sysadmin_env.server:app' not in readme
     assert 'from inference import main' in client
     assert 'from sysadmin_env.models import Action' in models

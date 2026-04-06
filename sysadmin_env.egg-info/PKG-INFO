@@ -136,7 +136,7 @@ reward is shaped over the full trajectory.
 the baseline inference script supports the required submission variables.
 
 ```dotenv
-# preferred submission credential. `OPENAI_API_KEY` and `API_KEY` are also accepted.
+# submission credential used by the baseline agent.
 HF_TOKEN="your_api_key_here"
 MODEL_NAME="gpt-5.4"
 API_BASE_URL="https://api.openai.com/v1"
@@ -154,6 +154,13 @@ EPISODE_TIMEOUT_SECONDS="600"
 
 this repository follows the standard layout expected after `openenv init`.
 
+`openenv push` performs a stricter structure check than `openenv validate`. to satisfy that check, the repository includes thin required shim files at the root and under `server/`.
+
+- `__init__.py`
+- `client.py`
+- `models.py`
+- `server/Dockerfile`
+
 ```bash
 openenv validate
 ```
@@ -170,7 +177,7 @@ for reproducible local setup, `pyproject.toml` and `uv.lock` define the environm
 uv sync --extra dev
 ```
 
-the repository targets python 3.11 for validator parity and includes `.python-version` for `uv` discovery. if your host only exposes a newer incompatible interpreter, install the matching runtime first.
+the repository targets python 3.11 for validator parity and includes `.python-version` for `uv` discovery. if your host only exposes a newer interpreter outside this supported range, install the matching runtime first.
 
 ```bash
 uv python install 3.11
@@ -241,6 +248,10 @@ if you already have the dependencies installed in an active environment, `python
 this repository is prepared for a Hugging Face docker space and the runtime entrypoint is defined in `Dockerfile`.
 
 the root `Dockerfile` installs from `pyproject.toml` and `uv.lock` via `uv sync --locked`, then starts the environment with `uv run server`.
+
+for `openenv push`, the CLI stages the repository and promotes `server/Dockerfile` to the deployment root. `server/Dockerfile` mirrors the same metadata driven build path so local docker builds and pushed builds stay aligned.
+
+the FastAPI server also includes a minimal OpenEnv web compatibility shim so pushed Spaces serve [`/web`](sysadmin_env/server.py) successfully. the shim keeps the existing [`/reset`](sysadmin_env/server.py), [`/step`](sysadmin_env/server.py), [`/state`](sysadmin_env/server.py), and [`/ws`](sysadmin_env/server.py) interfaces unchanged while adding helper routes at [`/web`](sysadmin_env/server.py), [`/web/metadata`](sysadmin_env/server.py), [`/web/reset`](sysadmin_env/server.py), [`/web/step`](sysadmin_env/server.py), and [`/web/state`](sysadmin_env/server.py).
 
 ```bash
 docker build -t sysadmin-env .
