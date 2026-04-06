@@ -1,0 +1,39 @@
+name: sysadmin-env
+version: "0.1.0"
+description: reinforcement learning environment for linux server auto remediation
+
+runtime:
+  python: "3.11"
+  entry_point: inference.py
+
+resources:
+  vcpus: 2
+  memory_gb: 8
+  gpu: none
+  max_runtime_minutes: 20
+
+tasks:
+  - id: nginx_crash
+    difficulty: easy
+    description: nginx crash with stale pid and config syntax error
+    max_steps: 30
+    time_limit_seconds: 180
+
+  - id: disk_full
+    difficulty: medium
+    description: hidden sparse log file filling a loopback mount
+    max_steps: 40
+    time_limit_seconds: 240
+
+  - id: network_broken
+    difficulty: hard
+    description: broken network namespace with corrupted routing tables
+    max_steps: 50
+    time_limit_seconds: 300
+
+evaluation:
+  protocol: sequential
+  tasks_order:
+    - nginx_crash
+    - disk_full
+    - network_broken
