@@ -155,13 +155,21 @@ fi
 
 log "${BOLD}Step 4/4: Running openenv validate${NC}"
 
-if ! command -v openenv >/dev/null 2>&1; then
+VALIDATE_CMD=""
+
+if command -v openenv >/dev/null 2>&1; then
+  VALIDATE_CMD="openenv validate"
+elif command -v uv >/dev/null 2>&1; then
+  VALIDATE_CMD="uv run openenv validate"
+else
   fail "openenv command not found"
-  hint "Install it with pip install openenv-core"
+  hint "Install it with pip install openenv-core or run through uv"
   stop_at "Step 4"
 fi
 
-VALIDATE_OUTPUT="$(cd "$REPO_DIR" && openenv validate 2>&1)"
+log "  Using validation command: $VALIDATE_CMD"
+
+VALIDATE_OUTPUT="$(cd "$REPO_DIR" && bash -lc "$VALIDATE_CMD" 2>&1)"
 VALIDATE_OK=$?
 
 if [ "$VALIDATE_OK" -eq 0 ]; then

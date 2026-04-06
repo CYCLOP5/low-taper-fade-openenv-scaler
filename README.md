@@ -58,7 +58,7 @@ the table below maps the repository to the practical requirements of the round 1
 | reward shaping | `RewardEngine` in `sysadmin_env/rewards.py` combines health deltas, one-time diagnostic rewards, and penalties |
 | agent entrypoint | `inference.py` loads env vars, queries `/tasks`, connects to `/ws`, emits `[START]`, `[STEP]`, and `[END]` logs |
 | packaging for openenv | root shim files `client.py`, `models.py`, `__init__.py`, plus `openenv.yaml` and mirrored docker assets |
-| validation path | `openenv validate`, docker build, http health/reset probes, and `scripts/validate-submission.sh` |
+| validation path | `openenv validate`, docker build, http health/reset probes, and `scripts/validate-submission.sh` (taken direclty from meta scaler website)|
 
 ## high-level architecture
 
