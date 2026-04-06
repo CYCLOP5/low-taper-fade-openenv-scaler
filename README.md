@@ -1064,6 +1064,7 @@ this is a deliberate portability tradeoff: the benchmark prefers “runs correct
 
 if you just want the shortest useful path:
 
+
 ```bash
 uv sync --extra dev
 uv run server --host 0.0.0.0 --port 8000
@@ -1083,3 +1084,9 @@ bash scripts/validate-submission.sh https://your-space.hf.space .
 ```
 
 that sequence exercises the main round 1 path from local development to deployment validation.
+
+with love :
+
+![hatsune-miku-miku](https://github.com/user-attachments/assets/2db5754f-20cd-4456-b636-c43197346976)
+![200w](https://github.com/user-attachments/assets/ea2e0c0c-91b9-4a49-93c2-daabea75c1d8)
+
