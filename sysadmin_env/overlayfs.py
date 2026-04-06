@@ -140,6 +140,10 @@ class OverlayFSManager:
 
         start = time.perf_counter()
 
+        mount_type = self._mount_type
+
+        self.unmount()
+
         for entry in self._upperdir.iterdir():
             if entry.is_dir():
                 shutil.rmtree(entry)
@@ -149,6 +153,18 @@ class OverlayFSManager:
         if self._workdir.exists():
             shutil.rmtree(self._workdir)
         self._workdir.mkdir()
+
+        if self._merged is not None:
+            self._merged.mkdir(exist_ok=True)
+
+        if mount_type == "kernel":
+            self._mount_kernel()
+            self._mount_type = "kernel"
+        else:
+            self._mount_fuse()
+            self._mount_type = "fuse"
+
+        self._mounted = True
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 

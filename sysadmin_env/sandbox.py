@@ -10,7 +10,6 @@ from sysadmin_env.overlayfs import OverlayFSManager
 
 @dataclass
 class CommandResult:
-    """raw output from a sandbox command execution"""
     stdout: str = ""
     stderr: str = ""
     exit_code: int = -1
@@ -19,17 +18,16 @@ class CommandResult:
 
 
 class Sandbox:
-    """
-    manages the lifecycle of an isolated bubblewrap sandbox backed by overlayfs
-    for sub second state resets between episodes
-    """
-
     _HOST_RO_BINDS = [
-        "/usr",
-        "/lib",
-        "/lib64",
+        "/usr/bin",
+        "/usr/sbin",
+        "/usr/lib",
+        "/usr/lib64",
+        "/usr/share",
         "/bin",
         "/sbin",
+        "/lib",
+        "/lib64",
         "/etc/alternatives",
         "/etc/ld.so.cache",
     ]
@@ -42,12 +40,6 @@ class Sandbox:
         isolate_network: bool = True,
         overlay_base_dir: str | None = None,
     ):
-        """
-        lowerdir is the pristine read only filesystem the agent interacts with
-        timeout is the default per command timeout in seconds
-        isolate network controls whether a new network namespace is created
-        overlay base dir is an optional parent for overlay directories
-        """
         self._lowerdir = Path(lowerdir).resolve()
         self._timeout = timeout
         self._isolate_network = isolate_network
@@ -68,14 +60,14 @@ class Sandbox:
         return self._overlay
 
     @property
-    def merged_root(self) -> Path | None:
+    def merged_root(self) -> Path:
+        return Path("/")
+
+    @property
+    def state_root(self) -> Path | None:
         return self._overlay.merged
 
     def create(self) -> None:
-        """
-        creates the sandbox by initializing and mounting the overlayfs stack
-        must be called before execute
-        """
         if self._created:
             raise RuntimeError("sandbox already created")
         if self._destroyed:
@@ -84,6 +76,7 @@ class Sandbox:
         self._verify_bwrap_available()
         self._overlay.create_stack(self._lowerdir)
         self._overlay.mount()
+        self._ensure_runtime_layout()
         self._created = True
         print("sandbox created")
 
@@ -91,18 +84,75 @@ class Sandbox:
         if shutil.which("bwrap") is None:
             raise FileNotFoundError("bwrap binary not found in path")
 
+    def _ensure_runtime_layout(self) -> None:
+        if self._overlay.merged is None:
+            raise RuntimeError("overlay stack not ready")
+
+        for relative in [
+            Path("bin"),
+            Path("sbin"),
+            Path("lib"),
+            Path("lib64"),
+            Path("usr"),
+            Path("usr/bin"),
+            Path("usr/sbin"),
+            Path("usr/lib"),
+            Path("usr/lib64"),
+            Path("usr/share"),
+            Path("usr/local"),
+            Path("usr/local/bin"),
+            Path("etc"),
+            Path("etc/alternatives"),
+            Path("var"),
+            Path("var/tmp"),
+            Path("tmp"),
+            Path("dev"),
+            Path("proc"),
+            Path("run"),
+            Path("root"),
+            Path("home"),
+        ]:
+            (self._overlay.merged / relative).mkdir(parents=True, exist_ok=True)
+
     def _build_bwrap_command(self, command: str) -> list[str]:
-        """
-        constructs the full bwrap command line binding host system dirs
-        read only and the overlayfs merged dir as the task workspace
-        """
+        if self._overlay.merged is None:
+            raise RuntimeError("sandbox storage not ready")
+
         merged = str(self._overlay.merged)
 
         cmd = [
             "bwrap",
+            "--bind",
+            merged,
+            "/",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
             "--unshare-pid",
             "--unshare-uts",
             "--unshare-cgroup-try",
+            "--die-with-parent",
+            "--hostname",
+            "sandbox",
+            "--clearenv",
+            "--setenv",
+            "PATH",
+            "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "--setenv",
+            "HOME",
+            "/root",
+            "--setenv",
+            "TERM",
+            "xterm",
+            "--uid",
+            "0",
+            "--gid",
+            "0",
+            "--cap-drop",
+            "ALL",
         ]
 
         if self._isolate_network:
@@ -113,30 +163,17 @@ class Sandbox:
                 cmd.extend(["--ro-bind", host_path, host_path])
 
         cmd.extend([
-            "--proc", "/proc",
-            "--dev", "/dev",
-            "--tmpfs", "/tmp",
-            "--tmpfs", "/run",
-            "--bind", merged, merged,
-            "--chdir", merged,
-            "--clearenv",
-            "--setenv", "PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-            "--setenv", "HOME", "/root",
-            "--setenv", "TERM", "xterm",
-            "--setenv", "SANDBOX_ROOT", merged,
-            "--hostname", "sandbox",
-            "--die-with-parent",
+            "--chdir",
+            "/",
             "--",
-            "/bin/sh", "-c", command,
+            "/bin/sh",
+            "-c",
+            command,
         ])
 
         return cmd
 
     def execute(self, command: str, *, timeout: float | None = None) -> CommandResult:
-        """
-        executes a command inside the sandbox and returns the captured output
-        uses the default timeout if none is provided per call
-        """
         if not self._created:
             raise RuntimeError("sandbox not created call create first")
         if self._destroyed:
@@ -165,14 +202,9 @@ class Sandbox:
             result.timed_out = True
 
         result.execution_time = time.perf_counter() - start
-
         return result
 
     async def execute_async(self, command: str, *, timeout: float | None = None) -> CommandResult:
-        """
-        async variant of execute that runs the sandbox command without
-        blocking the event loop
-        """
         if not self._created:
             raise RuntimeError("sandbox not created call create first")
         if self._destroyed:
@@ -190,7 +222,6 @@ class Sandbox:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(
                     proc.communicate(),
@@ -202,8 +233,6 @@ class Sandbox:
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
-                result.stdout = ""
-                result.stderr = ""
                 result.exit_code = -1
                 result.timed_out = True
         except OSError as exc:
@@ -211,25 +240,20 @@ class Sandbox:
             result.exit_code = -1
 
         result.execution_time = time.perf_counter() - start
-
         return result
 
     def reset(self) -> float:
-        """
-        resets the sandbox filesystem state via overlayfs
-        returns the reset latency in milliseconds
-        """
         if not self._created:
             raise RuntimeError("sandbox not created call create first")
         if self._destroyed:
             raise RuntimeError("sandbox has been destroyed")
 
         latency = self._overlay.reset()
+        self._ensure_runtime_layout()
         print(f"sandbox reset {latency:.1f}ms")
         return latency
 
     def destroy(self) -> None:
-        """releases all sandbox resources including the overlayfs stack"""
         if self._destroyed:
             return
 

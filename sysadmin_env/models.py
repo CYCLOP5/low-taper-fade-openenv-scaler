@@ -42,3 +42,21 @@ class RewardSignal(BaseModel):
     knowledge_delta: float = Field(ge=0.0)
     action_penalty: float = Field(le=0.0)
     total_reward: float
+
+
+class DiagnosticTrigger(BaseModel):
+    fact_id: str = Field(min_length=1)
+    command_patterns: list[str] = Field(min_length=1)
+    reward: float = Field(gt=0.0)
+
+
+class TaskScenarioState(BaseModel):
+    health: float = Field(ge=0.0, le=1.0)
+    done: bool
+    details: dict[str, bool | float | str]
+
+
+class TaskScenarioDefinition(BaseModel):
+    metadata: TaskMetadata
+    requires_network_isolation: bool = True
+    diagnostic_triggers: list[DiagnosticTrigger] = Field(default_factory=list)
