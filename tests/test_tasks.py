@@ -28,7 +28,7 @@ def test_nginx_crash_prepare_and_grade(tmp_path: Path):
     (tmp_path / nginx_crash.RUNNING_FLAG_PATH).write_text("running\n")
 
     fixed = nginx_crash.grade(tmp_path)
-    assert fixed.health == 1.0
+    assert fixed.health == nginx_crash.COMPLETION_HEALTH
     assert fixed.done
     assert fixed.details["service_running"]
 
@@ -54,7 +54,7 @@ def test_disk_full_prepare_and_grade(tmp_path: Path):
     (tmp_path / disk_full.HIDDEN_LOG_PATH).unlink()
     (tmp_path / disk_full.USAGE_PATH).write_text("10\n")
     complete = disk_full.grade(tmp_path)
-    assert complete.health == 1.0
+    assert complete.health == disk_full.COMPLETION_HEALTH
     assert complete.done
     assert complete.details["filesystem_has_capacity"]
 
@@ -81,7 +81,7 @@ def test_network_broken_prepare_and_grade(tmp_path: Path):
     (tmp_path / network_broken.ROUTE_PATH).write_text(network_broken.FIXED_ROUTE)
     (tmp_path / network_broken.RESOLV_PATH).write_text(network_broken.FIXED_RESOLV)
     fixed = network_broken.grade(tmp_path)
-    assert fixed.health == 1.0
+    assert fixed.health == network_broken.COMPLETION_HEALTH
     assert fixed.done
     assert fixed.details["outbound_connectivity_restored"]
 

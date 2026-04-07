@@ -480,7 +480,7 @@ def test_run_emits_start_and_end_tags_for_each_episode(monkeypatch, capsys):
             task_id=task_id,
             success=True,
             steps=1,
-            score=1.0,
+            score=0.99,
             rewards=[1.0],
         )
 
@@ -496,7 +496,7 @@ def test_run_emits_start_and_end_tags_for_each_episode(monkeypatch, capsys):
     assert output.count("[END]") == 2
     assert "[START] task=nginx_crash env=sysadmin-env model=" in output
     assert "[START] task=disk_full env=sysadmin-env model=" in output
-    assert "[END] success=true steps=1 score=1.00 rewards=1.00" in output
+    assert "[END] success=true steps=1 score=0.99 rewards=1.00" in output
 
 
 def test_log_helpers_support_legacy_json_mode(monkeypatch, capsys):
@@ -517,6 +517,13 @@ def test_log_end_flat_format_includes_score(capsys):
 
     output = capsys.readouterr().out.strip()
     assert output == "[END] success=true steps=3 score=0.98 rewards=0.35,0.24,0.39"
+
+
+def test_normalize_reported_score_maps_to_open_interval():
+    assert inference_module._normalize_reported_score(-5.0) == 0.01
+    assert inference_module._normalize_reported_score(0.0) == 0.01
+    assert inference_module._normalize_reported_score(1.0) == 0.99
+    assert inference_module._normalize_reported_score(5.0) == 0.99
 
 
 def test_normalize_openai_base_url_strips_responses_suffix():

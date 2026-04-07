@@ -228,7 +228,7 @@ async def run_episode(config: AgentConfig, task_id: str) -> EpisodeSummary:
                     task_id=str(task.get("task_id", task_id)),
                     success=success,
                     steps=step_number,
-                    score=_clamp_score(sum(rewards)),
+                    score=_normalize_reported_score(sum(rewards)),
                     rewards=rewards,
                 )
 
@@ -761,6 +761,10 @@ def _emit_error(value: str) -> None:
 
 def _clamp_score(value: float) -> float:
     return min(max(float(value), 0.0), 1.0)
+
+
+def _normalize_reported_score(value: float) -> float:
+    return 0.01 + (0.98 * _clamp_score(value))
 
 
 def _short_message(value: str, limit: int = 120) -> str:

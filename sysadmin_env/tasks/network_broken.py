@@ -11,6 +11,7 @@ from sysadmin_env.models import TaskScenarioState
 
 
 TASK_ID = "network_broken"
+COMPLETION_HEALTH = 0.99
 ROUTE_PATH = Path("etc/network/routes/default")
 ADDR_PATH = Path("etc/network/interfaces/eth0.addr")
 LINK_PATH = Path("etc/network/interfaces/eth0.link")
@@ -121,7 +122,10 @@ def grade(root: str | Path) -> TaskScenarioState:
     if dns_fixed:
         health += 0.2
     if connectivity_restored:
-        health += 0.3
+        health += 0.29
+
+    if connectivity_restored:
+        health = COMPLETION_HEALTH
 
     return TaskScenarioState(
         health=health,

@@ -60,10 +60,10 @@ def test_reward_engine_tracks_health_delta_during_remediation_and_combines_total
     (root / nginx_crash.RUNNING_FLAG_PATH).write_text("running\n")
     completion = engine.evaluate_action(state, "service nginx start")
 
-    assert completion.signal.health_delta == 0.75
+    assert completion.signal.health_delta == 0.74
     assert completion.signal.knowledge_delta == 0.0
-    assert completion.signal.total_reward == 0.75 + DEFAULT_STEP_PENALTY
-    assert completion.task_state.health == 1.0
+    assert completion.signal.total_reward == 0.74 + DEFAULT_STEP_PENALTY
+    assert completion.task_state.health == nginx_crash.COMPLETION_HEALTH
     assert completion.task_state.done
     assert state.done
 

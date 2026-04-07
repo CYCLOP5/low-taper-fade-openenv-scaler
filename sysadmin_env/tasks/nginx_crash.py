@@ -11,6 +11,7 @@ from sysadmin_env.models import TaskScenarioState
 
 
 TASK_ID = "nginx_crash"
+COMPLETION_HEALTH = 0.99
 PID_PATH = Path("var/run/nginx.pid")
 CONFIG_PATH = Path("etc/nginx/nginx.conf")
 ERROR_LOG_PATH = Path("var/log/nginx/error.log")
@@ -148,7 +149,10 @@ def grade(root: str | Path) -> TaskScenarioState:
     if config_fixed:
         health += 0.35
     if running:
-        health += 0.4
+        health += 0.39
+
+    if running:
+        health = COMPLETION_HEALTH
 
     return TaskScenarioState(
         health=health,

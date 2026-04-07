@@ -11,6 +11,7 @@ from sysadmin_env.models import TaskScenarioState
 
 
 TASK_ID = "disk_full"
+COMPLETION_HEALTH = 0.99
 MOUNT_PATH = Path("mnt/data")
 HIDDEN_LOG_PATH = Path("mnt/data/.cache/.rotated/app.trace")
 CAPACITY_PATH = Path("mnt/data/.capacity")
@@ -114,7 +115,10 @@ def grade(root: str | Path) -> TaskScenarioState:
     if hidden_file_found:
         health += 0.3
     if capacity_free:
-        health += 0.4
+        health += 0.39
+
+    if capacity_free:
+        health = COMPLETION_HEALTH
 
     return TaskScenarioState(
         health=health,

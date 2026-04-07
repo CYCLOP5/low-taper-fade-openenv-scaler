@@ -924,7 +924,7 @@ the default stdout format is the flat key-value format expected by the latest su
 
 details:
 
-- `score` is clamped to `[0, 1]` before logging
+- `score` is normalized to stay strictly inside `(0, 1)` before logging, so boundary values are not emitted in submission summaries
 - `reward` and each entry in `rewards` are formatted to exactly two decimal places
 - `done` and `success` are lowercase booleans
 - `error` is `null` when there is no step error
@@ -1084,10 +1084,11 @@ for the fully solved case (`H_final = 1.0`):
 | `disk_full` | `R = 1.0 + K_disk - 0.01n`, where `0 <= K_disk <= 0.22` |
 | `network_broken` | `R = 1.0 + K_net - 0.01n`, where `0 <= K_net <= 0.28` |
 
-the score reported by `inference.py` is then:
+the score reported by `inference.py` is then transformed into an open-interval submission summary value:
 
 ```text
-score = min(max(R, 0.0), 1.0)
+score_clamped = min(max(R, 0.0), 1.0)
+score_reported = 0.01 + 0.98 * score_clamped
 ```
 
 so the benchmark strongly rewards:
