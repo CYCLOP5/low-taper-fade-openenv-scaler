@@ -110,13 +110,19 @@ the repository keeps the implementation under `sysadmin_env/` and exposes a few 
 
 ```text
 .
+├── .env.example
+├── README.md
+├── messing-around-with-playbooks.md
 ├── __init__.py
 ├── client.py
+├── Dockerfile
 ├── inference.py
 ├── models.py
-├── Dockerfile
 ├── openenv.yaml
 ├── pyproject.toml
+├── requirements.txt
+├── outputs/
+│   └── output-*.txt
 ├── scripts/
 │   └── validate-submission.sh
 ├── server/
@@ -155,7 +161,10 @@ the repository keeps the implementation under `sysadmin_env/` and exposes a few 
 - `models.py` — thin root shim that re-exports the canonical pydantic models from `sysadmin_env.models`.
 - `__init__.py` — root package shim that re-exports `main`, `Action`, `Observation`, and `EnvironmentState`.
 - `inference.py` — the baseline agent used as the submission entrypoint declared in `openenv.yaml`.
+- `README.md` — primary repository documentation covering architecture, tasks, reward shaping, setup, validation, and the current baseline behavior.
+- `.env.example` — sample environment-variable file for local configuration.
 - `messing-around-with-playbooks.md` — change log for the recent baseline prompt and `network_broken` guardrail adjustments, including observed local run results.
+- `outputs/` — local captured baseline run logs used while tuning and validating the inference behavior.
 
 ### deployment, packaging, and validation files
 
