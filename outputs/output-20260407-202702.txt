@@ -1,0 +1,16 @@
+[START] {"task": "nginx_crash", "env": "sysadmin-env", "model": "gpt-5.4-mini"}
+[STEP] {"step": 1, "action": "nginx -t", "reward": 0.07, "done": false, "error": null}
+[STEP] {"step": 2, "action": "nl -ba /etc/nginx/nginx.conf | sed -n '1,20p'", "reward": -0.01, "done": false, "error": null}
+[STEP] {"step": 3, "action": "sed -i 's/^[[:space:]]*listen 8080$/        listen 8080;/' /etc/nginx/nginx.conf", "reward": 0.33999999999999997, "done": false, "error": null}
+[STEP] {"step": 4, "action": "nginx -t", "reward": -0.01, "done": false, "error": null}
+[STEP] {"step": 5, "action": "rm -f /var/run/nginx.pid && nginx", "reward": 0.64, "done": true, "error": null}
+[END] {"success": true, "steps": 5, "score": 1.0, "rewards": [0.07, -0.01, 0.33999999999999997, -0.01, 0.64]}
+[START] {"task": "disk_full", "env": "sysadmin-env", "model": "gpt-5.4-mini"}
+[STEP] {"step": 1, "action": "df -h /mnt/data", "reward": 0.35, "done": false, "error": null}
+[STEP] {"step": 2, "action": "du -sh /mnt/data /mnt/data/.cache /mnt/data/.cache/.rotated", "reward": 0.33999999999999997, "done": false, "error": null}
+[STEP] {"step": 3, "action": "truncate -s 0 /mnt/data/.cache/.rotated/app.trace", "reward": 0.39, "done": true, "error": null}
+[END] {"success": true, "steps": 3, "score": 1.0, "rewards": [0.35, 0.33999999999999997, 0.39]}
+[START] {"task": "network_broken", "env": "sysadmin-env", "model": "gpt-5.4-mini"}
+[STEP] {"step": 1, "action": "printf 'default via 10.0.2.2 dev eth0\\n' > /etc/network/routes/default", "reward": 0.49, "done": false, "error": null}
+[STEP] {"step": 2, "action": "printf 'nameserver 1.1.1.1\\n' > /etc/resolv.conf", "reward": 0.49, "done": true, "error": null}
+[END] {"success": true, "steps": 2, "score": 0.98, "rewards": [0.49, 0.49]}

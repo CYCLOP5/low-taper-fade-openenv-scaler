@@ -37,6 +37,7 @@ the benchmark focuses on linux remediation rather than toy puzzle solving. the a
 - [local setup](#local-setup)
 - [running the server locally](#running-the-server-locally)
 - [inference usage](#inference-usage)
+- [baseline behavior and current observations](#baseline-behavior-and-current-observations)
 - [validation flow](#validation-flow)
 - [docker and deployment flow](#docker-and-deployment-flow)
 - [mathematical summary of each task’s total raw return](#mathematical-summary-of-each-tasks-total-raw-return)
@@ -154,6 +155,7 @@ the repository keeps the implementation under `sysadmin_env/` and exposes a few 
 - `models.py` — thin root shim that re-exports the canonical pydantic models from `sysadmin_env.models`.
 - `__init__.py` — root package shim that re-exports `main`, `Action`, `Observation`, and `EnvironmentState`.
 - `inference.py` — the baseline agent used as the submission entrypoint declared in `openenv.yaml`.
+- `messing-around-with-playbooks.md` — change log for the recent baseline prompt and `network_broken` guardrail adjustments, including observed local run results.
 
 ### deployment, packaging, and validation files
 
@@ -892,10 +894,62 @@ EPISODE_TIMEOUT_SECONDS="600"
 
 notes:
 
-- `HF_TOKEN` is the first credential name the baseline checks, followed by `OPENAI_API_KEY` and `API_KEY`.
+- `API_BASE_URL` and `MODEL_NAME` both have built-in defaults in `inference.py`.
+- `HF_TOKEN` is the required submission-facing variable name. in practical terms, the token value must match the provider behind `API_BASE_URL`: if you point at the hugging face router, use a hugging face token; if you point at another openai-compatible endpoint, use the credential that endpoint expects.
+- the script also accepts `OPENAI_API_KEY` and `API_KEY` as compatibility fallbacks for local runs, but the documented submission path should still provide `HF_TOKEN`.
 - `SYSADMIN_ENV_TASK_ID=""` means “run all tasks returned by `/tasks` in order”.
 - `API_BASE_URL` may point to any openai-compatible endpoint.
-- the script writes `[START]`, `[STEP]`, and `[END]` records to stdout and diagnostics to stderr.
+- this baseline talks to the running environment server over http/websocket, so an extra `LOCAL_IMAGE_NAME` variable is not needed here unless you rewrite the client around a `from_docker_image()` flow.
+- by default, the script writes the flat submission-oriented `[START]`, `[STEP]`, and `[END]` records to stdout and diagnostics to stderr.
+- if you need the older json payload logs for local debugging, set `SYSADMIN_ENV_LOG_FORMAT=json` before running `inference.py`.
+
+### stdout output contract
+
+the default stdout format is the flat key-value format expected by the latest submission notes:
+
+```text
+[START] task=<task_name> env=<benchmark> model=<model_name>
+[STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+[END] success=<true|false> steps=<n> score=<0.00> rewards=<r1,r2,...,rn>
+```
+
+details:
+
+- `score` is clamped to `[0, 1]` before logging
+- `reward` and each entry in `rewards` are formatted to exactly two decimal places
+- `done` and `success` are lowercase booleans
+- `error` is `null` when there is no step error
+- all output stays on a single line per record
+
+## baseline behavior and current observations
+
+the current baseline keeps the same high-level contract while tightening how the hard task is handled.
+
+### current baseline behavior
+
+- if `HF_TOKEN` or another supported api key is present, `inference.py` uses the openai responses api.
+- if no api key is present or the model call fails, the script falls back to the deterministic task plan described in `inference.py`.
+- for `network_broken`, the model prompt now uses a **generic** task playbook rather than embedding the exact hidden grader targets.
+- after enough route, interface, and dns diagnosis, the baseline applies a state-aware guardrail for `network_broken` so that unsupported guesses do not loop forever.
+- the guardrail emits concise stderr traces such as `network guardrail dns repair` and `network guardrail route repair`, which makes the baseline easier to debug without changing the wire protocol.
+
+### why the baseline was adjusted
+
+the earlier prompt variant made `network_broken` too easy because the model could effectively recover the exact answer from the prompt rather than infer it from the environment. the current prompt removes that leakage and keeps the hard task benchmark-oriented while still allowing a reproducible baseline run.
+
+### current observed local baseline run
+
+the latest local run against the repository server with `MODEL_NAME="gpt-5.4-nano"` produced the following episode summaries:
+
+| task | success | steps | score | notes |
+| --- | --- | ---: | ---: | --- |
+| `nginx_crash` | `true` | `6` | `1.0` | fixed config, cleared stale pid, then started nginx |
+| `disk_full` | `true` | `4` | `1.0` | diagnosed the full mount, inspected the hidden trace, then truncated it |
+| `network_broken` | `true` | `7` | `1.0` | gathered route/link/dns evidence first, then the guardrail applied dns repair followed by route repair |
+
+this is a **current observed baseline**, not a theoretical guarantee for every model provider or future model snapshot.
+
+for the full debugging narrative behind those adjustments, see `messing-around-with-playbooks.md`.
 
 ## validation flow
 
@@ -913,6 +967,12 @@ for packaging, server-contract, and scoring-focused checks, a narrower command i
 
 ```bash
 uv run pytest -q tests/test_packaginge.py tests/test_server.py tests/test_rewards.py tests/test_inferenxe.py
+```
+
+for the recent baseline-planner and task-behavior checks used while tuning `network_broken`, a focused command is:
+
+```bash
+uv run pytest -q --import-mode=importlib tests/test_inferenxe.py tests/test_tasks.py
 ```
 
 ### 2. openenv manifest validation

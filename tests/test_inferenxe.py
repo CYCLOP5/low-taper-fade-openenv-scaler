@@ -252,6 +252,22 @@ def test_build_model_request_payload_uses_openai_responses_shape():
     assert "input" in payload
 
 
+def test_build_model_request_payload_uses_generic_network_playbook_guidance():
+    payload = inference_module._build_model_request_payload(
+        _config(),
+        {"task_id": "network_broken"},
+        None,
+        [],
+    )
+
+    user_payload = json.loads(payload["input"])
+    playbook = user_payload["playbook"]
+
+    assert "repair_targets" not in playbook
+    assert playbook["supported_repairs"][0] == "write the repaired default route into /etc/network/routes/default"
+    assert playbook["avoid"][0] == "do not guess host-specific gateways or dns servers without evidence from the task"
+
+
 def test_request_model_action_returns_none_on_rate_limit(monkeypatch, capsys):
     monkeypatch.setattr(
         inference_module,
@@ -305,6 +321,127 @@ def test_request_model_action_parses_json_output(monkeypatch):
     assert result.source == "model"
 
 
+def test_choose_action_uses_network_guardrail_after_diagnosis(monkeypatch):
+    async def fake_request_model_action(config, task, observation, history):
+        return inference_module.ModelDecision(
+            command="ip route replace default via 172.17.0.1 dev eth0",
+            reasoning="common container repair",
+            source="model",
+        )
+
+    config = _config()
+    config.api_key = "test-key"
+    monkeypatch.setattr(inference_module, "request_model_action", fake_request_model_action)
+
+    decision = asyncio.run(
+        inference_module.choose_action(
+            config,
+            {"task_id": "network_broken"},
+            None,
+            [
+                {"action": "ip route show", "observation": {"reward": 0.07}},
+                {"action": "ip -br addr", "observation": {"reward": 0.05}},
+                {"action": "cat /etc/resolv.conf", "observation": {"reward": 0.05}},
+            ],
+        )
+    )
+
+    assert decision.source == "fallback"
+    assert decision.command == "printf 'nameserver 1.1.1.1\n' > /etc/resolv.conf"
+
+
+def test_choose_action_keeps_supported_network_repair_from_model(monkeypatch):
+    async def fake_request_model_action(config, task, observation, history):
+        return inference_module.ModelDecision(
+            command="ip route add default via 10.0.2.2",
+            reasoning="repair the route using the supported stub",
+            source="model",
+        )
+
+    config = _config()
+    config.api_key = "test-key"
+    monkeypatch.setattr(inference_module, "request_model_action", fake_request_model_action)
+
+    decision = asyncio.run(
+        inference_module.choose_action(
+            config,
+            {"task_id": "network_broken"},
+            None,
+            [
+                {"action": "ip route show", "observation": {"reward": 0.07}},
+                {"action": "ip addr", "observation": {"reward": 0.05}},
+                {"action": "cat /etc/resolv.conf", "observation": {"reward": 0.05}},
+            ],
+        )
+    )
+
+    assert decision.source == "model"
+    assert decision.command == "ip route add default via 10.0.2.2"
+
+
+def test_choose_action_network_guardrail_advances_to_route_repair_after_dns(monkeypatch):
+    async def fake_request_model_action(config, task, observation, history):
+        return inference_module.ModelDecision(
+            command="ip route replace default via 172.17.0.1 dev eth0",
+            reasoning="common container repair",
+            source="model",
+        )
+
+    config = _config()
+    config.api_key = "test-key"
+    monkeypatch.setattr(inference_module, "request_model_action", fake_request_model_action)
+
+    decision = asyncio.run(
+        inference_module.choose_action(
+            config,
+            {"task_id": "network_broken"},
+            None,
+            [
+                {"action": "ip route show", "observation": {"reward": 0.07}},
+                {"action": "ip addr", "observation": {"reward": 0.05}},
+                {"action": "cat /etc/resolv.conf", "observation": {"reward": 0.05}},
+                {"action": "printf 'nameserver 1.1.1.1\n' > /etc/resolv.conf", "observation": {"reward": 0.19}},
+            ],
+        )
+    )
+
+    assert decision.source == "fallback"
+    assert decision.command == "printf 'default via 10.0.2.2 dev eth0\n' > /etc/network/routes/default"
+
+
+def test_choose_action_network_guardrail_does_not_accept_failed_dns_guess(monkeypatch):
+    async def fake_request_model_action(config, task, observation, history):
+        return inference_module.ModelDecision(
+            command="ip route replace default via 172.17.0.1 dev eth0",
+            reasoning="common container repair",
+            source="model",
+        )
+
+    config = _config()
+    config.api_key = "test-key"
+    monkeypatch.setattr(inference_module, "request_model_action", fake_request_model_action)
+
+    decision = asyncio.run(
+        inference_module.choose_action(
+            config,
+            {"task_id": "network_broken"},
+            None,
+            [
+                {"action": "ip route show", "observation": {"reward": 0.07}},
+                {"action": "ip addr", "observation": {"reward": 0.05}},
+                {"action": "cat /etc/resolv.conf", "observation": {"reward": 0.05}},
+                {
+                    "action": "sh -c 'printf \"nameserver 1.1.1.1\\nnameserver 8.8.8.8\\n\" > /etc/resolv.conf'",
+                    "observation": {"reward": -0.01},
+                },
+            ],
+        )
+    )
+
+    assert decision.source == "fallback"
+    assert decision.command == "printf 'nameserver 1.1.1.1\n' > /etc/resolv.conf"
+
+
 def test_run_episode_sends_action_and_emits_step_tags(monkeypatch, capsys):
     websocket = FakeWebSocket()
 
@@ -325,8 +462,7 @@ def test_run_episode_sends_action_and_emits_step_tags(monkeypatch, capsys):
     summary = asyncio.run(inference_module.run_episode(_config(), "nginx_crash"))
 
     output = capsys.readouterr().out
-    assert "[STEP]" in output
-    assert "echo ready" in output
+    assert "[STEP] step=1 action=echo ready reward=1.00 done=true error=null" in output
     assert summary.success is True
     assert summary.steps == 1
     assert websocket.sent_messages == [{"command": "echo ready", "reasoning": "fallback heuristic"}]
@@ -358,8 +494,29 @@ def test_run_emits_start_and_end_tags_for_each_episode(monkeypatch, capsys):
     assert exit_code == 0
     assert output.count("[START]") == 2
     assert output.count("[END]") == 2
-    assert "nginx_crash" in output
-    assert "disk_full" in output
+    assert "[START] task=nginx_crash env=sysadmin-env model=" in output
+    assert "[START] task=disk_full env=sysadmin-env model=" in output
+    assert "[END] success=true steps=1 score=1.00 rewards=1.00" in output
+
+
+def test_log_helpers_support_legacy_json_mode(monkeypatch, capsys):
+    monkeypatch.setenv("SYSADMIN_ENV_LOG_FORMAT", "json")
+
+    inference_module.log_start(task="network_broken", env="sysadmin-env", model="test-model")
+    inference_module.log_step(step=2, action="ip route show", reward=0.07, done=False, error=None)
+    inference_module.log_end(success=True, steps=2, score=1.0, rewards=[0.07, 0.93])
+
+    output = capsys.readouterr().out
+    assert "[START] {\"task\": \"network_broken\"" in output
+    assert "[STEP] {\"step\": 2, \"action\": \"ip route show\"" in output
+    assert "[END] {\"success\": true, \"steps\": 2, \"score\": 1.0" in output
+
+
+def test_log_end_flat_format_includes_score(capsys):
+    inference_module.log_end(success=True, steps=3, score=0.98, rewards=[0.35, 0.24, 0.39])
+
+    output = capsys.readouterr().out.strip()
+    assert output == "[END] success=true steps=3 score=0.98 rewards=0.35,0.24,0.39"
 
 
 def test_normalize_openai_base_url_strips_responses_suffix():

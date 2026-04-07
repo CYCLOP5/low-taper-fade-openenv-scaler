@@ -1,0 +1,25 @@
+[START] {"task": "nginx_crash", "env": "sysadmin-env", "model": "gpt-5.4-nano"}
+[STEP] {"step": 1, "action": "nginx -t", "reward": 0.07, "done": false, "error": null}
+[STEP] {"step": 2, "action": "sed -n '1,20p' /etc/nginx/nginx.conf", "reward": -0.01, "done": false, "error": null}
+[STEP] {"step": 3, "action": "sed -i 's/^\\([[:space:]]*listen[[:space:]]\\+8080\\)[[:space:]]*$/\\1;/' /etc/nginx/nginx.conf", "reward": 0.33999999999999997, "done": false, "error": null}
+[STEP] {"step": 4, "action": "nginx -t", "reward": -0.01, "done": false, "error": null}
+[STEP] {"step": 5, "action": "for f in /run/nginx.pid /var/run/nginx.pid; do [ -f \"$f\" ] || continue; pid=$(cat \"$f\" 2>/dev/null); if [ -n \"$pid\" ] && ps -p \"$pid\" >/dev/null 2>&1; then continue; fi; rm -f \"$f\"; done; nginx", "reward": 0.03, "done": false, "error": null}
+[STEP] {"step": 6, "action": "rm -f /run/nginx.pid /var/run/nginx.pid && nginx", "reward": 0.64, "done": true, "error": null}
+[END] {"success": true, "steps": 6, "score": 1.0, "rewards": [0.07, -0.01, 0.33999999999999997, -0.01, 0.03, 0.64]}
+[START] {"task": "disk_full", "env": "sysadmin-env", "model": "gpt-5.4-nano"}
+[STEP] {"step": 1, "action": "df -h /mnt/data", "reward": 0.35, "done": false, "error": null}
+[STEP] {"step": 2, "action": "du -sh /mnt/data /mnt/data/.cache /mnt/data/.cache/.rotated", "reward": 0.33999999999999997, "done": false, "error": null}
+[STEP] {"step": 3, "action": "ls -lLh /mnt/data/.cache/.rotated/app.trace", "reward": -0.01, "done": false, "error": null}
+[STEP] {"step": 4, "action": "truncate -s 0 /mnt/data/.cache/.rotated/app.trace", "reward": 0.39, "done": true, "error": null}
+[END] {"success": true, "steps": 4, "score": 1.0, "rewards": [0.35, 0.33999999999999997, -0.01, 0.39]}
+[START] {"task": "network_broken", "env": "sysadmin-env", "model": "gpt-5.4-nano"}
+[STEP] {"step": 1, "action": "ip route show", "reward": 0.26, "done": false, "error": null}
+[STEP] {"step": 2, "action": "ip addr show dev eth9", "reward": 0.04, "done": false, "error": null}
+[STEP] {"step": 3, "action": "ip link show eth9", "reward": 0.04, "done": false, "error": null}
+[STEP] {"step": 4, "action": "cat /etc/network/routes/default", "reward": -0.01, "done": false, "error": null}
+[STEP] {"step": 5, "action": "cat /etc/resolv.conf", "reward": 0.04, "done": false, "error": null}
+network guardrail dns repair
+[STEP] {"step": 6, "action": "printf 'nameserver 1.1.1.1\n' > /etc/resolv.conf", "reward": 0.19, "done": false, "error": null}
+network guardrail route repair
+[STEP] {"step": 7, "action": "printf 'default via 10.0.2.2 dev eth0\n' > /etc/network/routes/default", "reward": 0.59, "done": true, "error": null}
+[END] {"success": true, "steps": 7, "score": 1.0, "rewards": [0.26, 0.04, 0.04, -0.01, 0.04, 0.19, 0.59]}
