@@ -1,0 +1,108 @@
+# deploying EnterpriseHPC-v0 to hugging face spaces
+
+this guide walks through hosting the openenv server on a hugging face
+space so a remote agent can hit the environment over http. the space uses
+the existing `Dockerfile` at the repo root.
+
+## prerequisites
+
+- a hugging face account
+- the hub cli installed locally: `pip install huggingface_hub`
+- `hf auth login` with a token that has write access to spaces
+
+## 1 create the space
+
+```
+huggingface-cli repo create enterprise-hpc-openenv --type space --space_sdk docker
+```
+
+alternative: create it manually at
+https://huggingface.co/new-space with sdk set to docker and
+visibility public.
+
+## 2 push the repo
+
+```
+git remote add space https://huggingface.co/spaces/<your-user>/enterprise-hpc-openenv
+git push space main
+```
+
+the space will pick up `Dockerfile` automatically. the build takes a
+few minutes because uv installs the full dependency tree. you do not
+need `app.py`; the `CMD` at the bottom of the Dockerfile starts the
+openenv server on `:8000`.
+
+## 3 expose the port correctly
+
+spaces proxy everything to `:7860` by default. override with a space
+level secret or env var:
+
+```
+PORT=7860
+```
+
+and adjust the Dockerfile `CMD` to read `$PORT` or override with a
+space setting. or simpler, change the last line of the Dockerfile to:
+
+```
+CMD ["sh", "-c", "uv run server --host 0.0.0.0 --port ${PORT:-7860}"]
+```
+
+## 4 user namespaces on spaces
+
+hugging face spaces containers run as an unprivileged user. bwrap with
+`--unshare-user` works out of the box. fuse-overlayfs does not. the
+`OverlayFSManager` already handles this: kernel overlay is tried
+first, fuse-overlayfs second, and a copy fallback last. expect the
+copy fallback on spaces, which benches at ~3 ms reset latency, still
+well within the sub 10 ms budget.
+
+## 5 smoke test from your laptop
+
+the minimal openenv client lives in `client.py`. hit the space with:
+
+```
+python - <<'PY'
+from client import ClientError, SysadminEnvClient
+c = SysadminEnvClient("https://<your-user>-enterprise-hpc-openenv.hf.space")
+ep = c.start_episode(task_id="hpc_outage")
+print("episode", ep.episode_id, "max_steps", ep.max_steps)
+out = c.run_command(ep.episode_id, "sinfo")
+print(out.stdout)
+PY
+```
+
+expected first response includes `compute-01   drain   IB fabric fault`.
+
+## 6 point the gym wrapper at the space
+
+the `EnterpriseHPCEnv` gym wrapper talks to the sandbox via local
+pexpect, not over http. for a spaces deployment, clients should use
+the openenv rest api exposed by `server/` via `SysadminEnvClient`.
+treat the space as the environment provider and run the training
+loop anywhere with network access.
+
+for a fully remote training run bind the generator to spaces
+endpoints and keep the rollout logic in python. a thin
+`RemoteEnterpriseHPCEnv` that forwards `reset` and `step` calls to
+the http api can be a follow up.
+
+## 7 troubleshooting
+
+- space fails to build on fuse-overlayfs apt install: remove the
+  `fuse-overlayfs` line from the Dockerfile. the env will still work
+  via kernel overlay or copy fallback
+- pexpect errors about pty devices: the gym wrapper is only exercised
+  inside the openenv container so this is usually not triggered from
+  the space itself. it shows up when running `hpc_gym.main()` directly
+  and is a signal the container was not allocated enough pty slots
+
+## 8 what a winning submission looks like
+
+- openenv server running on a space with a public url
+- mini blog on hf with the architecture diagram and reward curve,
+  linking to `docs/hf_blog.md` as the source
+- colab notebook link that reproduces a training run in under an hour
+- video under two minutes on youtube or linkedin with the script from
+  `docs/video_script.md`
+- pitch doc `docs/pitch.md` as the presentation backbone

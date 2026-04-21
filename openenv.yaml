@@ -38,10 +38,31 @@ tasks:
     max_steps: 70
     time_limit_seconds: 480
 
+  - id: hpc_outage
+    difficulty: hard
+    description: multi node hpc cluster outage with drained compute and broken ood portal
+    max_steps: 90
+    time_limit_seconds: 600
+
+  - id: hpc_munge
+    difficulty: hard
+    description: compute node draining due to a munge key permission fault and broken route
+    max_steps: 90
+    time_limit_seconds: 600
+
+  - id: hpc_pid_stale
+    difficulty: hard
+    description: slurmd refuses to restart after reboot because a stale pid file is still on disk
+    max_steps: 90
+    time_limit_seconds: 600
+
 evaluation:
   protocol: sequential
-  max_total_runtime_seconds: 1200
+  max_total_runtime_seconds: 2700
   tasks_order:
     - nginx_crash
     - disk_full
     - network_broken
+    - hpc_outage
+    - hpc_munge
+    - hpc_pid_stale

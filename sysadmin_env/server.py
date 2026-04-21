@@ -99,6 +99,7 @@ class EpisodeManager:
             timeout=definition.metadata.time_limit,
             isolate_network=definition.requires_network_isolation,
             overlay_base_dir=self._allocate_overlay_dir(selected_task_id),
+            allow_nested_sandbox=definition.allows_nested_sandbox,
         )
         print(f"episode sandbox create start {selected_task_id}")
         sandbox.create()

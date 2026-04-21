@@ -39,11 +39,13 @@ class Sandbox:
         timeout: float = 30.0,
         isolate_network: bool = True,
         overlay_base_dir: str | None = None,
+        allow_nested_sandbox: bool = False,
     ):
         self._lowerdir = Path(lowerdir).resolve()
         self._timeout = timeout
         self._isolate_network = isolate_network
         self._overlay = OverlayFSManager(base_dir=overlay_base_dir)
+        self._allow_nested_sandbox = allow_nested_sandbox
         self._created = False
         self._destroyed = False
 
@@ -164,9 +166,16 @@ class Sandbox:
             "0",
             "--gid",
             "0",
-            "--cap-drop",
-            "ALL",
         ]
+
+        if self._allow_nested_sandbox:
+            cmd.extend([
+                "--unshare-user",
+                "--cap-add",
+                "CAP_SYS_ADMIN",
+            ])
+        else:
+            cmd.extend(["--cap-drop", "ALL"])
 
         if self._isolate_network:
             cmd.append("--unshare-net")

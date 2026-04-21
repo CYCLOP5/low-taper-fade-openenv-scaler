@@ -1,18 +1,27 @@
-import os
 import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
+
+
+DEFAULT_VOLATILE_ROOT = "/dev/shm"
 
 
 class OverlayFSManager:
     """manages overlayfs stacks for sub second filesystem state resets"""
 
-    def __init__(self, base_dir: str | None = None):
+    def __init__(
+        self,
+        base_dir: str | None = None,
+        *,
+        volatile_root: str | None = None,
+    ):
         """
-        base dir is the parent directory where overlay stack directories are created
-        if none a temporary directory is used
+        base dir is the parent directory where the merged mount point is created
+        volatile root is the ram backed filesystem where upperdir and workdir live
+        defaults to /dev/shm so resets never hit persistent disk io
         """
         if base_dir is not None:
             self._base_dir = Path(base_dir)
@@ -21,6 +30,12 @@ class OverlayFSManager:
         else:
             self._base_dir = Path(tempfile.mkdtemp(prefix="overlayfs_"))
             self._owns_base_dir = True
+
+        volatile_candidate = Path(volatile_root) if volatile_root is not None else Path(DEFAULT_VOLATILE_ROOT)
+        self._volatile_base = self._select_volatile_base(volatile_candidate)
+        self._volatile_dir = self._volatile_base / f"overlay_{uuid.uuid4().hex}"
+        self._volatile_dir.mkdir(parents=True, exist_ok=True)
+        print(f"overlay volatile root {self._volatile_dir}")
 
         self._lowerdir: Path | None = None
         self._upperdir: Path | None = None
@@ -53,9 +68,14 @@ class OverlayFSManager:
     def mount_type(self) -> str | None:
         return self._mount_type
 
+    @property
+    def volatile_dir(self) -> Path:
+        return self._volatile_dir
+
     def create_stack(self, lowerdir: str | Path) -> Path:
         """
         creates the overlay directory stack given a lowerdir path
+        upperdir and workdir are pinned to the volatile ram disk
         returns the path to the merged directory
         """
         lowerdir = Path(lowerdir).resolve()
@@ -63,15 +83,15 @@ class OverlayFSManager:
             raise FileNotFoundError(f"lowerdir does not exist {lowerdir}")
 
         self._lowerdir = lowerdir
-        self._upperdir = self._base_dir / "upper"
-        self._workdir = self._base_dir / "work"
+        self._upperdir = self._volatile_dir / "upper"
+        self._workdir = self._volatile_dir / "work"
         self._merged = self._base_dir / "merged"
 
         self._upperdir.mkdir(exist_ok=True)
         self._workdir.mkdir(exist_ok=True)
         self._merged.mkdir(exist_ok=True)
 
-        print(f"overlay stack created at {self._base_dir}")
+        print(f"overlay stack created upper {self._upperdir} work {self._workdir} merged {self._merged}")
         return self._merged
 
     def mount(self) -> None:
@@ -150,6 +170,7 @@ class OverlayFSManager:
     def reset(self) -> float:
         """
         resets the overlay by clearing upperdir contents and recreating workdir
+        upperdir/workdir live on tmpfs so this stays sub 10ms on warm kernels
         returns the reset latency in milliseconds
         """
         if not self._mounted:
@@ -167,15 +188,7 @@ class OverlayFSManager:
         else:
             self.unmount()
 
-            for entry in self._upperdir.iterdir():
-                if entry.is_dir():
-                    shutil.rmtree(entry)
-                else:
-                    entry.unlink()
-
-            if self._workdir.exists():
-                shutil.rmtree(self._workdir)
-            self._workdir.mkdir()
+            self._purge_volatile_pair()
 
             if self._merged is not None:
                 self._merged.mkdir(exist_ok=True)
@@ -231,6 +244,15 @@ class OverlayFSManager:
         self._mount_type = None
         print("overlay unmounted")
 
+    def _purge_volatile_pair(self) -> None:
+        """wipes upperdir and workdir trees from the volatile ram disk"""
+        for target in (self._upperdir, self._workdir):
+            if target is None:
+                continue
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+            target.mkdir(parents=True, exist_ok=True)
+
     def _clear_directory(self, directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
         for entry in directory.iterdir():
@@ -239,13 +261,36 @@ class OverlayFSManager:
             else:
                 entry.unlink()
 
+    def _select_volatile_base(self, preferred: Path) -> Path:
+        """picks a ram backed root or falls back to the system temp dir"""
+        candidates: list[Path] = [preferred]
+        if preferred != Path(DEFAULT_VOLATILE_ROOT):
+            candidates.append(Path(DEFAULT_VOLATILE_ROOT))
+        candidates.append(Path(tempfile.gettempdir()))
+
+        for candidate in candidates:
+            try:
+                candidate.mkdir(parents=True, exist_ok=True)
+                probe = candidate / f".probe_{uuid.uuid4().hex}"
+                probe.touch()
+                probe.unlink()
+                return candidate
+            except OSError as exc:
+                print(f"overlay volatile candidate rejected {candidate} {type(exc).__name__.lower()}")
+                continue
+
+        raise RuntimeError("no writable volatile root available")
+
     def cleanup(self) -> None:
-        """unmounts if mounted and removes all overlay directories"""
+        """unmounts if mounted and recursively deletes all overlay directories"""
         self.unmount()
 
         for d in [self._upperdir, self._workdir, self._merged]:
             if d is not None and d.exists():
                 shutil.rmtree(d, ignore_errors=True)
+
+        if self._volatile_dir.exists():
+            shutil.rmtree(self._volatile_dir, ignore_errors=True)
 
         if self._owns_base_dir and self._base_dir.exists():
             shutil.rmtree(self._base_dir, ignore_errors=True)

@@ -81,4 +81,5 @@ class TaskScenarioState(BaseModel):
 class TaskScenarioDefinition(BaseModel):
     metadata: TaskMetadata
     requires_network_isolation: bool = True
+    allows_nested_sandbox: bool = False
     diagnostic_triggers: list[DiagnosticTrigger] = Field(default_factory=list)
