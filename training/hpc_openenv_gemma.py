@@ -29,7 +29,10 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--max-new-tokens", type=int, default=384)
     parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--scenarios", default="hpc_outage,hpc_munge,hpc_pid_stale")
+    parser.add_argument(
+        "--scenarios",
+        default="hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache",
+    )
     parser.add_argument("--logging-steps", type=int, default=5)
     parser.add_argument("--save-steps", type=int, default=50)
     parser.add_argument("--report-to", default="tensorboard")
@@ -66,8 +69,16 @@ def _random_policy(rng: random.Random):
         "systemctl restart slurmd",
         "chmod 0400 /etc/munge/munge.key",
         "systemctl restart munge",
+        "rm /var/run/slurmd.pid",
+        "nvidia-smi",
+        "nvidia-smi -r -i 0",
+        "umount -l /mnt/shared",
+        "mount /mnt/shared",
+        "apachectl configtest",
+        "apachectl graceful",
         "exit",
         "curl -I http://localhost:8080/",
+        "curl -I http://localhost:8081/",
     ]
 
     def generate(batches):

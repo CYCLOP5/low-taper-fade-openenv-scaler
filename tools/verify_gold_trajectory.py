@@ -8,7 +8,10 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
+from sysadmin_env.tasks import hpc_gpu_ecc
 from sysadmin_env.tasks import hpc_munge
+from sysadmin_env.tasks import hpc_nfs_stale
+from sysadmin_env.tasks import hpc_ood_apache
 from sysadmin_env.tasks import hpc_outage
 from sysadmin_env.tasks import hpc_pid_stale
 
@@ -51,10 +54,58 @@ def fix_hpc_pid_stale(root: Path) -> None:
     state_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
 
 
+def fix_hpc_gpu_ecc(root: Path) -> None:
+    sentinel = root / hpc_gpu_ecc.ECC_RESET_PATH
+    sentinel.parent.mkdir(parents=True, exist_ok=True)
+    sentinel.write_text("reset ok\n")
+
+    state_path = root / hpc_gpu_ecc.SHARED_STATE_PATH
+    doc = json.loads(state_path.read_text())
+    gpus = doc.setdefault("gpus", {})
+    gpus.setdefault("compute-01:gpu-0", {})["state"] = "healthy"
+    gpus["compute-01:gpu-0"]["ecc_vol_total"] = 0
+    doc["services"]["slurmd@compute-01"] = "active"
+    doc["nodes"]["compute-01"]["state"] = "idle"
+    doc["nodes"]["compute-01"]["reason"] = ""
+    state_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+
+def fix_hpc_nfs_stale(root: Path) -> None:
+    stale = root / hpc_nfs_stale.MOUNT_STALE_RELATIVE
+    if stale.exists():
+        stale.unlink()
+    valid = root / hpc_nfs_stale.MOUNT_VALID_RELATIVE
+    valid.parent.mkdir(parents=True, exist_ok=True)
+    valid.write_text("fresh mount handle\n")
+
+    state_path = root / hpc_nfs_stale.SHARED_STATE_PATH
+    doc = json.loads(state_path.read_text())
+    doc["services"]["slurmd@compute-01"] = "active"
+    doc["nodes"]["compute-01"]["state"] = "idle"
+    doc["nodes"]["compute-01"]["reason"] = ""
+    state_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+
+def fix_hpc_ood_apache(root: Path) -> None:
+    conf_path = root / hpc_ood_apache.HTTPD_CONF_PATH
+    conf_path.parent.mkdir(parents=True, exist_ok=True)
+    conf_path.write_text(hpc_ood_apache.FIXED_HTTPD_CONF)
+
+    state_path = root / hpc_ood_apache.SHARED_STATE_PATH
+    doc = json.loads(state_path.read_text())
+    doc["services"]["httpd@login"] = "active"
+    doc.setdefault("portals", {}).setdefault("apache_ood", {})["state"] = "healthy"
+    doc["portals"]["apache_ood"]["last_error"] = ""
+    state_path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n")
+
+
 SCENARIOS: dict[str, tuple[object, Callable[[Path], None]]] = {
     hpc_outage.TASK_ID: (hpc_outage, fix_hpc_outage),
     hpc_munge.TASK_ID: (hpc_munge, fix_hpc_munge),
     hpc_pid_stale.TASK_ID: (hpc_pid_stale, fix_hpc_pid_stale),
+    hpc_gpu_ecc.TASK_ID: (hpc_gpu_ecc, fix_hpc_gpu_ecc),
+    hpc_nfs_stale.TASK_ID: (hpc_nfs_stale, fix_hpc_nfs_stale),
+    hpc_ood_apache.TASK_ID: (hpc_ood_apache, fix_hpc_ood_apache),
 }
 
 

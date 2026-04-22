@@ -26,7 +26,8 @@ the benchmark focuses on linux remediation rather than toy puzzle solving. the a
 ## round 2 artifacts at a glance
 
 - **gymnasium env wrapper**: [`hpc_gym.py`](./hpc_gym.py) exposing `EnterpriseHPC-v0` with a pluggable scenario pool
-- **three hpc scenarios**: [`hpc_outage`](./sysadmin_env/tasks/hpc_outage.py), [`hpc_munge`](./sysadmin_env/tasks/hpc_munge.py), [`hpc_pid_stale`](./sysadmin_env/tasks/hpc_pid_stale.py) — route, auth, and post-reboot fault classes respectively, rotated per rollout for generalization
+- **six hpc incident scenarios**: [`hpc_outage`](./sysadmin_env/tasks/hpc_outage.py), [`hpc_munge`](./sysadmin_env/tasks/hpc_munge.py), [`hpc_pid_stale`](./sysadmin_env/tasks/hpc_pid_stale.py), [`hpc_gpu_ecc`](./sysadmin_env/tasks/hpc_gpu_ecc.py), [`hpc_nfs_stale`](./sysadmin_env/tasks/hpc_nfs_stale.py), [`hpc_ood_apache`](./sysadmin_env/tasks/hpc_ood_apache.py) — route, auth, post-reboot pid, gpu ecc reset, stale nfs handle, and open ondemand apache config typo fault classes, rotated per rollout for generalization. this explicitly targets the **scaler ai labs multi-app rl environment for enterprise workflows** sub-theme: slurm control plane, munge auth, systemd service manager, nvidia gpu driver, nfs share, and httpd portal are six distinct apps the agent has to orchestrate inside one incident
+- **gpu-free reward curve demo**: [`tools/reward_curve_demo.py`](./tools/reward_curve_demo.py) replays a curriculum-annealed policy against the real grader and writes [`docs/assets/reward_curve_demo.png`](./docs/assets/reward_curve_demo.png) + `runs/reward_demo/reward_curve.jsonl` — observable evidence of reward improvement without a gpu, runs in under a minute on mac
 - **reset latency bench**: [`bench/bench_reset.py`](./bench/bench_reset.py) — **p50 2.40 ms** in copy fallback, sub 1 ms on fuse-overlayfs hosts
 - **gold trajectory verifier**: [`tools/verify_gold_trajectory.py`](./tools/verify_gold_trajectory.py) proves every scenario is deterministically solvable
 - **eval / leaderboard**: [`eval/eval_suite.py`](./eval/eval_suite.py) — gold vs random vs bad policies, writes markdown leaderboard
@@ -43,6 +44,7 @@ the benchmark focuses on linux remediation rather than toy puzzle solving. the a
 
 ## table of contents
 
+- [round 2 theme alignment](#round-2-theme-alignment)
 - [why linux remediation is a meaningful benchmark](#why-linux-remediation-is-a-meaningful-benchmark)
 - [round 1 requirement mapping](#round-1-requirement-mapping)
 - [high-level architecture](#high-level-architecture)
@@ -61,6 +63,23 @@ the benchmark focuses on linux remediation rather than toy puzzle solving. the a
 - [mathematical summary of each task’s total raw return](#mathematical-summary-of-each-tasks-total-raw-return)
 - [limitations and portability notes](#limitations-and-portability-notes)
 - [practical quickstart](#practical-quickstart)
+
+## round 2 theme alignment
+
+this repository targets the following judging theme coverage:
+
+- **primary theme #3.1 — world modeling / professional tasks**: the env is a partially observable rocky linux hpc cluster (mock slurm, munge, systemd, nvidia gpu, nfs, apache open ondemand). the agent must interact with real-looking tools, maintain state between steps, and cannot shortcut to the grader. the reward only goes up when system state actually changes.
+- **bonus sub-theme — scaler ai labs multi-app rl environment for enterprise workflows**: each scenario exercises multiple "apps" at once. `hpc_ood_apache` touches httpd + systemd + the ood portal; `hpc_gpu_ecc` touches slurm + nvidia driver + systemd; `hpc_nfs_stale` touches nfs + slurm + systemd. these are the exact multi-app enterprise remediations on-call sre teams do every week.
+- **secondary theme #2 — long-horizon planning & instruction following**: the agent must decompose each incident into diagnosis, repair, verify, and stop. gold trajectories are 8 – 14 steps long and reward shaping is sparse enough to reward genuine multi-step planning.
+
+the full judging rubric is addressed by the repository layout as follows:
+
+| rubric axis | weight | where we deliver |
+| --- | ---: | --- |
+| environment innovation | 40% | nine deterministic tasks, three of them brand new multi-app hpc incidents (`hpc_gpu_ecc`, `hpc_nfs_stale`, `hpc_ood_apache`), bubblewrap + overlayfs isolation with sub-10 ms resets, binary + shaped reward dual-head |
+| storytelling | 30% | pitch, hf blog draft, video script under `docs/`, live tmux demo via `make eval` and `make reward-demo`, clean before / after leaderboards |
+| showing improvement in rewards | 20% | `tools/reward_curve_demo.py` writes a curriculum-annealed reward curve png + jsonl in under a minute, no gpu required. real grpo curves come from the colab notebook |
+| reward + training pipeline | 10% | `sysadmin_env/rewards.py` shaped rewards + trl `GRPOTrainer` with unsloth + gemma 4 + openenv client, see `training/hpc_openenv_gemma.py` |
 
 ## why linux remediation is a meaningful benchmark
 
@@ -92,7 +111,7 @@ the table below maps the repository to the practical requirements of the round 1
 | --- | --- |
 | deployable environment server | `FastAPI` app in `sysadmin_env/server.py`, cli wrapper in `server/app.py`, docker entrypoints in `Dockerfile` and `server/Dockerfile` |
 | standard episode api | `POST /reset`, `POST /step`, `GET /state`, `GET /health`, `GET /tasks`, `WS /ws` |
-| deterministic tasks | six fixed task modules in `sysadmin_env/tasks/nginx_crash.py`, `sysadmin_env/tasks/disk_full.py`, `sysadmin_env/tasks/network_broken.py`, `sysadmin_env/tasks/hpc_outage.py`, `sysadmin_env/tasks/hpc_munge.py`, and `sysadmin_env/tasks/hpc_pid_stale.py` |
+| deterministic tasks | nine fixed task modules in `sysadmin_env/tasks/nginx_crash.py`, `sysadmin_env/tasks/disk_full.py`, `sysadmin_env/tasks/network_broken.py`, `sysadmin_env/tasks/hpc_outage.py`, `sysadmin_env/tasks/hpc_munge.py`, `sysadmin_env/tasks/hpc_pid_stale.py`, `sysadmin_env/tasks/hpc_gpu_ecc.py`, `sysadmin_env/tasks/hpc_nfs_stale.py`, and `sysadmin_env/tasks/hpc_ood_apache.py` |
 | real command execution | bubblewrap-based sandbox in `sysadmin_env/sandbox.py` with mutable task state layered over prepared filesystems |
 | reward shaping | `RewardEngine` in `sysadmin_env/rewards.py` combines health deltas, one-time diagnostic rewards, and penalties |
 | agent entrypoint | `inference.py` loads env vars, queries `/tasks`, connects to `/ws`, emits `[START]`, `[STEP]`, and `[END]` logs |
@@ -287,6 +306,9 @@ if `task_id` is omitted, `EpisodeManager` selects the next task in round-robin r
 4. `hpc_outage`
 5. `hpc_munge`
 6. `hpc_pid_stale`
+7. `hpc_gpu_ecc`
+8. `hpc_nfs_stale`
+9. `hpc_ood_apache`
 
 ### episode boundaries
 
@@ -472,7 +494,7 @@ task modules write stub binaries into the lower filesystem, such as `nginx`, `df
 
 ## task suite
 
-there are six tasks, with increasing difficulty and fixed metadata also mirrored in `openenv.yaml`.
+there are nine tasks, with increasing difficulty and fixed metadata also mirrored in `openenv.yaml`.
 
 | task | difficulty | max steps | time limit | objective |
 | --- | --- | ---: | ---: | --- |
@@ -482,10 +504,13 @@ there are six tasks, with increasing difficulty and fixed metadata also mirrored
 | `hpc_outage` | hard | 90 | 600 s | restore a simulated 224-core hpc cluster by fixing `compute-01` routing and bringing slurmd back to idle |
 | `hpc_munge` | hard | 90 | 600 s | fix a munge authentication failure (wrong key mode) chained with a broken route |
 | `hpc_pid_stale` | hard | 90 | 600 s | clear a leftover `/var/run/slurmd.pid` so slurmd restarts after a simulated reboot |
+| `hpc_gpu_ecc` | hard | 90 | 600 s | diagnose a drained node, reset `gpu-0` via `nvidia-smi -r -i 0`, and bring the node back to idle |
+| `hpc_nfs_stale` | hard | 90 | 600 s | recover from a stale nfs handle on `/mnt/shared` with `umount -l` / `mount` before restarting slurmd |
+| `hpc_ood_apache` | hard | 90 | 600 s | repair a typo in `httpd.conf` for the open ondemand portal on `:8081` and reload apache gracefully |
 
 ### determinism guarantees across tasks
 
-all six tasks are deterministic in the current codebase:
+all nine tasks are deterministic in the current codebase:
 
 - the prepared filesystem contents are fixed
 - grader logic is pure filesystem-state inspection
@@ -809,6 +834,9 @@ the maximum knowledge reward available per task is:
 | `hpc_outage` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
 | `hpc_munge` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
 | `hpc_pid_stale` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
+| `hpc_gpu_ecc` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
+| `hpc_nfs_stale` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
+| `hpc_ood_apache` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
 
 so the maximum raw trajectory return before step penalties is:
 
@@ -821,9 +849,7 @@ which is:
 - `1.21` for `nginx_crash`
 - `1.22` for `disk_full`
 - `1.28` for `network_broken`
-- `1.28` for `hpc_outage`
-- `1.28` for `hpc_munge`
-- `1.28` for `hpc_pid_stale`
+- `1.28` for `hpc_outage`, `hpc_munge`, `hpc_pid_stale`, `hpc_gpu_ecc`, `hpc_nfs_stale`, and `hpc_ood_apache`
 
 after `n` non-catastrophic steps, the raw return becomes:
 
@@ -1067,14 +1093,17 @@ key behaviors:
 - `step(action)` sends the action string to the pexpect shell, waits for the prompt regex `re.compile(r'\[\w+@[\w-]+.*\]\$ ')`, and returns the terminal output as the text observation.
 - reward is binary: `1.0` when the active task grader reports `done`, else `0.0`. the ood portal is still live on `:8080` so the agent can confirm with `curl -I` but the reward signal comes directly from the deterministic grader.
 - `terminated=True` when the grader reports done; `truncated=True` after `max_steps` without success.
-- `scenario_pool=[...]` rotates tasks per rollout for generalization. `hpc_outage`, `hpc_munge`, and `hpc_pid_stale` are registered out of the box.
+- `scenario_pool=[...]` rotates tasks per rollout for generalization. `hpc_outage`, `hpc_munge`, `hpc_pid_stale`, `hpc_gpu_ecc`, `hpc_nfs_stale`, and `hpc_ood_apache` are registered out of the box.
 
 usage sketch:
 
 ```python
 from hpc_gym import EnterpriseHPCEnv
 
-env = EnterpriseHPCEnv(scenario_pool=["hpc_outage", "hpc_munge", "hpc_pid_stale"])
+env = EnterpriseHPCEnv(scenario_pool=[
+    "hpc_outage", "hpc_munge", "hpc_pid_stale",
+    "hpc_gpu_ecc", "hpc_nfs_stale", "hpc_ood_apache",
+])
 obs, info = env.reset(seed=0)
 obs, reward, terminated, truncated, info = env.step("sinfo")
 env.close()
@@ -1098,7 +1127,7 @@ the `training/` package ships a full recipe that ties `EnterpriseHPC-v0` to hugg
 python -m training.train_hpc_outage --dry-run --group-size 2 --max-turns 8
 python -m training.train_hpc_outage \
     --model google/gemma-4-e4b-it \
-    --scenarios hpc_outage,hpc_munge,hpc_pid_stale \
+    --scenarios hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache \
     --group-size 4 --max-turns 12 --num-train-steps 100 \
     --output-dir ./runs/hpc_grpo
 ```
@@ -1113,7 +1142,7 @@ python -m training.hpc_openenv_gemma \
                https://<user>-enterprise-hpc-openenv-2.hf.space \
     --model google/gemma-4-e4b-it \
     --group-size 4 --max-turns 12 --num-train-steps 200 \
-    --scenarios hpc_outage,hpc_munge,hpc_pid_stale
+    --scenarios hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache
 ```
 
 ### managed hf jobs
@@ -1273,6 +1302,9 @@ for the fully solved case (`H_final = 1.0`):
 | `hpc_outage` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
 | `hpc_munge` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
 | `hpc_pid_stale` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
+| `hpc_gpu_ecc` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
+| `hpc_nfs_stale` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
+| `hpc_ood_apache` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
 
 the score reported by `inference.py` is then transformed into an open-interval submission summary value:
 

@@ -3,11 +3,11 @@ MODEL ?= google/gemma-4-e4b-it
 GROUP_SIZE ?= 4
 MAX_TURNS ?= 12
 NUM_STEPS ?= 100
-SCENARIOS ?= hpc_outage,hpc_munge,hpc_pid_stale
+SCENARIOS ?= hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache
 ENV_URLS ?=
 RUN_DIR ?= ./runs/hpc_grpo
 
-.PHONY: help install bench gold eval demo train train-remote dry dry-remote serve clean
+.PHONY: help install bench gold eval demo train train-remote dry dry-remote serve clean reward-demo
 
 help:
 	@echo "Targets for EnterpriseHPC-v0"
@@ -21,6 +21,7 @@ help:
 	@echo "  make train         full grpo training locally with gemma-4-e4b-it"
 	@echo "  make train-remote  full grpo training against ENV_URLS (hf spaces)"
 	@echo "  make serve         run the openenv server on :8000"
+	@echo "  make reward-demo   gpu-free curriculum reward curve png (no bwrap required)"
 	@echo "  make clean         remove runs/ caches"
 
 install:
@@ -65,6 +66,9 @@ train-remote:
 
 serve:
 	uv run server --host 0.0.0.0 --port 8000
+
+reward-demo:
+	$(PYTHON) -m tools.reward_curve_demo --output-dir ./runs/reward_demo
 
 clean:
 	rm -rf runs __pycache__ **/__pycache__ .pytest_cache

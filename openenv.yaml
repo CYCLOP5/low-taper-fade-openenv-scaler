@@ -56,9 +56,27 @@ tasks:
     max_steps: 90
     time_limit_seconds: 600
 
+  - id: hpc_gpu_ecc
+    difficulty: hard
+    description: compute node drained because nvidia-smi reports gpu-0 uncorrectable ecc errors
+    max_steps: 90
+    time_limit_seconds: 600
+
+  - id: hpc_nfs_stale
+    difficulty: hard
+    description: compute node drained because the nfs share at /mnt/shared reports stale file handle
+    max_steps: 90
+    time_limit_seconds: 600
+
+  - id: hpc_ood_apache
+    difficulty: medium
+    description: open ondemand apache portal on :8081 returns 500 due to a one character typo in httpd.conf
+    max_steps: 80
+    time_limit_seconds: 540
+
 evaluation:
   protocol: sequential
-  max_total_runtime_seconds: 2700
+  max_total_runtime_seconds: 4200
   tasks_order:
     - nginx_crash
     - disk_full
@@ -66,3 +84,6 @@ evaluation:
     - hpc_outage
     - hpc_munge
     - hpc_pid_stale
+    - hpc_gpu_ecc
+    - hpc_nfs_stale
+    - hpc_ood_apache

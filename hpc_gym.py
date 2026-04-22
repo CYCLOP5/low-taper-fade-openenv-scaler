@@ -27,7 +27,10 @@ except ImportError as exc:
     ) from exc
 
 from sysadmin_env.sandbox import Sandbox
+from sysadmin_env.tasks import hpc_gpu_ecc
 from sysadmin_env.tasks import hpc_munge
+from sysadmin_env.tasks import hpc_nfs_stale
+from sysadmin_env.tasks import hpc_ood_apache
 from sysadmin_env.tasks import hpc_outage
 from sysadmin_env.tasks import hpc_pid_stale
 
@@ -44,6 +47,9 @@ SCENARIO_REGISTRY: dict[str, ModuleType] = {
     hpc_outage.TASK_ID: hpc_outage,
     hpc_munge.TASK_ID: hpc_munge,
     hpc_pid_stale.TASK_ID: hpc_pid_stale,
+    hpc_gpu_ecc.TASK_ID: hpc_gpu_ecc,
+    hpc_nfs_stale.TASK_ID: hpc_nfs_stale,
+    hpc_ood_apache.TASK_ID: hpc_ood_apache,
 }
 
 

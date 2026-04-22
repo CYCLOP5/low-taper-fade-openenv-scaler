@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Callable
 
+from sysadmin_env.tasks import hpc_ood_apache
 from sysadmin_env.tasks import hpc_outage
 
 
@@ -48,6 +49,40 @@ GOLD_TRAJECTORY_PID_STALE = [
     "curl -I http://localhost:8080/",
 ]
 
+GOLD_TRAJECTORY_GPU_ECC = [
+    "sinfo",
+    "squeue",
+    "ssh compute-01",
+    "nvidia-smi",
+    "nvidia-smi -q -d ECC",
+    "nvidia-smi -r -i 0",
+    "exit",
+    "curl -I http://localhost:8080/",
+]
+
+GOLD_TRAJECTORY_NFS_STALE = [
+    "sinfo",
+    "squeue",
+    "ssh compute-01",
+    "mount",
+    "umount -l /mnt/shared",
+    "mount /mnt/shared",
+    "systemctl restart slurmd",
+    "exit",
+    "curl -I http://localhost:8080/",
+]
+
+GOLD_TRAJECTORY_OOD_APACHE = [
+    "sinfo",
+    "systemctl status httpd",
+    "cat /etc/httpd/conf/httpd.conf",
+    "apachectl configtest",
+    f"printf '{hpc_ood_apache.FIXED_HTTPD_CONF}' > /etc/httpd/conf/httpd.conf",
+    "apachectl configtest",
+    "apachectl graceful",
+    "curl -I http://localhost:8081/",
+]
+
 RANDOM_POOL = [
     "sinfo",
     "squeue",
@@ -61,9 +96,18 @@ RANDOM_POOL = [
     "chmod 0777 /etc/munge/munge.key",
     "cat /var/run/slurmd.pid",
     "rm /var/run/slurmd.pid",
+    "nvidia-smi",
+    "nvidia-smi -r -i 0",
+    "mount",
+    "umount -l /mnt/shared",
+    "mount /mnt/shared",
+    "apachectl configtest",
+    f"printf '{hpc_ood_apache.FIXED_HTTPD_CONF}' > /etc/httpd/conf/httpd.conf",
+    "apachectl graceful",
     "ls /mnt/shared",
     "exit",
     "curl -I http://localhost:8080/",
+    "curl -I http://localhost:8081/",
 ]
 
 BAD_TRAJECTORY = [
@@ -177,7 +221,10 @@ def _write_markdown(path: Path, summary: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trials", type=int, default=3)
-    parser.add_argument("--scenarios", default="hpc_outage,hpc_munge,hpc_pid_stale")
+    parser.add_argument(
+        "--scenarios",
+        default="hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache",
+    )
     parser.add_argument("--policies", default="gold,random,bad")
     parser.add_argument("--env-urls", nargs="+", default=None)
     parser.add_argument("--seed", type=int, default=0)
@@ -194,6 +241,12 @@ def main() -> int:
             return GOLD_TRAJECTORY_MUNGE
         if scenario == "hpc_pid_stale":
             return GOLD_TRAJECTORY_PID_STALE
+        if scenario == "hpc_gpu_ecc":
+            return GOLD_TRAJECTORY_GPU_ECC
+        if scenario == "hpc_nfs_stale":
+            return GOLD_TRAJECTORY_NFS_STALE
+        if scenario == "hpc_ood_apache":
+            return GOLD_TRAJECTORY_OOD_APACHE
         return GOLD_TRAJECTORY_OUTAGE
 
     def random_actions(_: str, rng: random.Random) -> list[str]:

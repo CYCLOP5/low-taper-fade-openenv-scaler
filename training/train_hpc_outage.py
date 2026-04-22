@@ -31,7 +31,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument(
         "--scenarios",
-        default="hpc_outage,hpc_munge,hpc_pid_stale",
+        default="hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache",
         help="comma separated task ids to sample from",
     )
     parser.add_argument("--logging-steps", type=int, default=5)
@@ -56,8 +56,18 @@ def _random_policy_generator(rng: random.Random):
         "cat /etc/sysconfig/network-scripts/route-eth0",
         "printf 'default via 10.0.0.1\\n' > /etc/sysconfig/network-scripts/route-eth0",
         "systemctl restart slurmd",
+        "chmod 0400 /etc/munge/munge.key",
+        "systemctl restart munge",
+        "rm /var/run/slurmd.pid",
+        "nvidia-smi",
+        "nvidia-smi -r -i 0",
+        "umount -l /mnt/shared",
+        "mount /mnt/shared",
+        "apachectl configtest",
+        "apachectl graceful",
         "exit",
         "curl -I http://localhost:8080/",
+        "curl -I http://localhost:8081/",
     ]
 
     def generate(batches):

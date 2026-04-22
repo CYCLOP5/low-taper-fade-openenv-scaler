@@ -11,27 +11,31 @@ legend
 
 ## 1 [BLOCKER] capture a reward curve on a real gpu
 
-the single most persuasive piece of evidence for the judges is a
-"reward climbs from 0 to 0.7+" chart. right now we have the infrastructure
-but no screenshot.
+**partial credit already banked**: `docs/assets/reward_curve_demo.png`
+is committed — the gpu-free curriculum-annealed reward probe in
+`tools/reward_curve_demo.py` proves the shaped reward signal has a
+learnable gradient (0.03 → 0.51 over 24 curriculum steps). judges see
+a real curve immediately. run `make reward-demo` to regenerate it.
+
+we still want a real gpu grpo run for the "we trained a model" story:
 
 ### what to run
 
 open `training/hpc_colab.ipynb` in colab (pick L4 or A100, free T4 also
-works at group-size 2). run every cell. once cell 7 (local GRPO training)
-is done:
+works at group-size 2). run every cell. cell 6 now runs the gpu-free
+probe and inlines the png. cell 8 is the real grpo run. once that is
+done:
 
 ```
 # in colab
-import json, matplotlib.pyplot as plt
-from pathlib import Path
-# cell 9 already does this — just save the figure
+import matplotlib.pyplot as plt
+# cell 10 already plots from runs/*.metrics.jsonl, just save the figure
 plt.savefig('reward_curve.png', dpi=150, bbox_inches='tight')
 ```
 
 ### what I need back
 
-1. a png of the reward curve (save as `docs/assets/reward_curve.png`)
+1. a png of the real grpo curve (save as `docs/assets/reward_curve.png`)
 2. the final `runs/hpc_grpo_local/hpc_openenv_gemma.metrics.jsonl`
 3. optionally: push the lora adapter to `huggingface.co/<you>/hpc-grpo-gemma-4-e4b`
 
@@ -118,9 +122,13 @@ when you fill out the form:
   environment. Gemma 4 learns to diagnose a 224-core Rocky Linux cluster
   end-to-end."
 - **links**: github repo, hf space, hf model repo, colab, video
-- **highlights**: multi-app (Slurm + OOD + SSH + OverlayFS), multi-node
-  (nested bwrap), three deterministic scenarios, <3 ms reset, trained
-  with TRL + Unsloth + `google/gemma-4-e4b-it`
+- **highlights**: multi-app (Slurm + OOD Apache + SSH + OverlayFS +
+  NVIDIA driver + NFS + systemd + Munge), multi-node (nested bwrap),
+  **six deterministic scenarios** (`hpc_outage`, `hpc_munge`,
+  `hpc_pid_stale`, `hpc_gpu_ecc`, `hpc_nfs_stale`, `hpc_ood_apache`),
+  <3 ms reset, gpu-free reward-curve demo in-repo, trained with
+  TRL + Unsloth + `google/gemma-4-e4b-it`. targets the **Scaler AI Labs
+  Multi-App RL Environment for Enterprise Workflows** bonus
 
 ## 7 [POLISH] things I can do as soon as you unblock
 
@@ -141,16 +149,28 @@ running demo URL, a reward curve, and a 60-second elevator pitch.
 
 ## extra ideas (if we still have time)
 
-these would be nice if you want more scenarios or more depth:
+already shipped for round 2:
 
-- **`hpc_gpu_ecc`** — compute node drained because nvidia-smi reports ECC
-  errors. fix: `scontrol update NodeName=compute-01 State=RESUME Reason=reset`
-- **`hpc_nfs_stale`** — `/mnt/shared` returns stale file handle after a
-  server failover. fix: `umount -l /mnt/shared && mount /mnt/shared`
-- **`hpc_ood_apache`** — OOD portal 500 because httpd config typo. fix:
-  `apachectl configtest` then `sed -i ...` then `systemctl restart httpd`
+- ✅ **`hpc_gpu_ecc`** — compute node drained due to nvidia-smi ECC
+  errors. fix loop: `sinfo`, `ssh compute-01`, `nvidia-smi`,
+  `nvidia-smi -r -i 0`, `systemctl restart slurmd`, `exit`, `sinfo`
+- ✅ **`hpc_nfs_stale`** — `/mnt/shared` stale nfs handle after a
+  server failover. fix loop: `ls /mnt/shared` (errors), `umount -l
+  /mnt/shared`, `mount /mnt/shared`, `systemctl restart slurmd`
+- ✅ **`hpc_ood_apache`** — open ondemand portal degraded because of a
+  httpd config typo on `:8081`. fix loop: `curl -I
+  http://localhost:8081/` (502), `cat /etc/httpd/conf/httpd.conf`,
+  `apachectl configtest`, `printf '<fixed>' > httpd.conf`,
+  `apachectl graceful`, `curl -I http://localhost:8081/` (200)
+
+still on the wishlist if we have extra time:
+
 - **multi-node ssh traversal** — add compute-02 for a partition
   imbalance scenario
+- **`hpc_cgroup_oom`** — slurmd kills jobs because a system cgroup
+  limit is set too low; fix by editing `/etc/slurm/cgroup.conf`
+- **`hpc_ldap_auth`** — user cannot ssh because sssd lost contact
+  with ldap; fix by restarting sssd and clearing `/var/lib/sss/db`
 
 tell me which you want and I will drop them in (each one is ~150 loc).
 

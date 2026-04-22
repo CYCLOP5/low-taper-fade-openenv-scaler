@@ -2,7 +2,10 @@ from sysadmin_env.models import DiagnosticTrigger
 from sysadmin_env.models import TaskScenarioDefinition
 from sysadmin_env.models import TaskScenarioState
 from sysadmin_env.tasks import disk_full
+from sysadmin_env.tasks import hpc_gpu_ecc
 from sysadmin_env.tasks import hpc_munge
+from sysadmin_env.tasks import hpc_nfs_stale
+from sysadmin_env.tasks import hpc_ood_apache
 from sysadmin_env.tasks import hpc_outage
 from sysadmin_env.tasks import hpc_pid_stale
 from sysadmin_env.tasks import network_broken
@@ -16,6 +19,9 @@ TASK_MODULES = {
     hpc_outage.TASK_ID: hpc_outage,
     hpc_munge.TASK_ID: hpc_munge,
     hpc_pid_stale.TASK_ID: hpc_pid_stale,
+    hpc_gpu_ecc.TASK_ID: hpc_gpu_ecc,
+    hpc_nfs_stale.TASK_ID: hpc_nfs_stale,
+    hpc_ood_apache.TASK_ID: hpc_ood_apache,
 }
 
 
