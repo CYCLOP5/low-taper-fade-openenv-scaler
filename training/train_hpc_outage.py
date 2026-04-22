@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+# unsloth must be imported before trl / transformers / peft
+try:
+    import unsloth  # noqa: F401
+except ImportError:
+    pass
+
 import argparse
 import json
 import os

@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+# unsloth must be imported before trl / transformers / peft so its monkey-patches
+# take effect. we attempt it here at module load time so the import order is
+# always correct regardless of which backend is ultimately selected.
+try:
+    import unsloth  # noqa: F401
+except ImportError:
+    pass
+
 import argparse
 import os
 import random
