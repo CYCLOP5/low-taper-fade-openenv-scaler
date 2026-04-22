@@ -7,7 +7,7 @@ name = "sysadmin-env"
 version = "0.3.0"
 description = "OpenEnv-style multi-app HPC SRE environment for enterprise workflow reinforcement learning"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "sysadmin env contributors" },
@@ -24,6 +24,7 @@ keywords = [
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
