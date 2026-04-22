@@ -35,7 +35,7 @@ from sysadmin_env.tasks import hpc_outage
 from sysadmin_env.tasks import hpc_pid_stale
 
 
-PROMPT_PATTERN = re.compile(r"\[\w+@[\w-]+.*\]\$ ")
+PROMPT_PATTERN = re.compile(r"\[[^\]\r\n]+\][#$]\s?")
 PRIMARY_HOSTNAME = "hpc-login"
 OOD_PORT = 8080
 OOD_LOG_PATH = "/tmp/ood.log"
