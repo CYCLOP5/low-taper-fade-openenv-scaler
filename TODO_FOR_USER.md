@@ -42,7 +42,14 @@ plt.savefig('reward_curve.png', dpi=150, bbox_inches='tight')
 once those are in the repo I will update `docs/pitch.md`, `docs/hf_blog.md`,
 and `README.md` to inline the chart and link the hub artifacts.
 
-## 2 [BLOCKER] deploy the openenv server to a hf space
+## 2 [BLOCKER] deploy the openenv server to a hf space - DONE
+
+space: https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv
+live url: https://huggingmenfordays-enterprise-hpc-openenv.hf.space
+
+_original instructions below for reference_
+
+## 2 [reference] deploy the openenv server to a hf space
 
 judges will click "try it" in the submission form. without a live space
 they cannot hit the env.

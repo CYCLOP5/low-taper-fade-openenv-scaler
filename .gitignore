@@ -2,3 +2,6 @@
 __pycache__/
 .pytest_cache/
 assets/runtime/
+.venv/
+*.egg-info/
+unsloth_compiled_cache/

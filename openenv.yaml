@@ -6,6 +6,7 @@ runtime:
   python: "3.11"
   entry_point: inference.py
   server_entry_point: server.app:app
+  live_url: https://huggingmenfordays-enterprise-hpc-openenv.hf.space
   reset_endpoint: /reset
   step_endpoint: /step
   state_endpoint: /state
