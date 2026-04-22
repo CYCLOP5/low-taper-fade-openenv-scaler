@@ -216,8 +216,9 @@ def _load_model_and_tokenizer(args: argparse.Namespace):
             )
             FastLanguageModel.for_inference(model)
             return model, tokenizer, "unsloth"
-        except ImportError:
-            print("unsloth missing falling back to transformers backend", file=sys.stderr)
+        except Exception as _ue:  # noqa: BLE001
+            # Unsloth raises RuntimeError/AssertionError on CUDA/version mismatch, not just ImportError
+            print(f"unsloth unavailable ({_ue.__class__.__name__}: {_ue}) — falling back to transformers backend", file=sys.stderr)
 
     import torch  # type: ignore
     from peft import LoraConfig  # type: ignore
@@ -240,7 +241,7 @@ def _load_model_and_tokenizer(args: argparse.Namespace):
             torch_dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16,
             device_map="auto",
         )
-    lora = LoraConfig(
+    _lora_kwargs: dict = dict(
         r=args.lora_r,
         lora_alpha=args.lora_alpha,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
@@ -248,6 +249,30 @@ def _load_model_and_tokenizer(args: argparse.Namespace):
         bias="none",
         task_type="CAUSAL_LM",
     )
+    # Gemma4 / other multimodal models wrap vision-encoder linears in a non-standard
+    # class (Gemma4ClippableLinear) that older PEFT can't inject into.  Exclude the
+    # vision tower and projector so LoRA only targets the text decoder.
+    _vision_substrings = ("vision_tower", "multi_modal_projector", "image_newline", "patch_embedding")
+    _has_vision = any(
+        any(s in name for s in _vision_substrings) for name, _ in model.named_modules()
+    )
+    if _has_vision:
+        import inspect as _inspect  # noqa: PLC0415
+        if "exclude_modules" in _inspect.signature(LoraConfig.__init__).parameters:
+            _lora_kwargs["exclude_modules"] = list(_vision_substrings)
+        else:
+            # Older PEFT: filter target_modules to only nn.Linear instances,
+            # which excludes wrapped Gemma4ClippableLinear in the vision tower.
+            import torch.nn as _nn  # noqa: PLC0415
+            _suffixes = set(_lora_kwargs["target_modules"])
+            _safe_targets: set[str] = set()
+            for _name, _mod in model.named_modules():
+                if type(_mod) is _nn.Linear:
+                    for _sfx in _suffixes:
+                        if _name.endswith(f".{_sfx}"):
+                            _safe_targets.add(_sfx)
+            _lora_kwargs["target_modules"] = sorted(_safe_targets) or list(_suffixes)
+    lora = LoraConfig(**_lora_kwargs)
     model = get_peft_model(model, lora)
     return model, tokenizer, "transformers"
 
