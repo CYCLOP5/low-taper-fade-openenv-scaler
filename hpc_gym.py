@@ -282,18 +282,38 @@ class EnterpriseHPCEnv(gym.Env):
     def _bootstrap_primary_prompt(self) -> None:
         if self._shell is None:
             raise RuntimeError("shell not spawned")
+        # disable bracketed-paste mode (\e[?2004l) so terminal escape sequences
+        # do not pollute command output and confuse the prompt regex
         self._shell.sendline(
+            "printf '\\e[?2004l'; "
             f"export PS1='[root@{PRIMARY_HOSTNAME} \\W]\\$ '; "
             "export PROMPT_COMMAND=''; stty -echo 2>/dev/null; true"
         )
         self._await_prompt(self._shell_timeout)
 
+    @staticmethod
+    def _find_python3_in_sandbox() -> str:
+        """return the first python3 binary that exists on the host and will
+        therefore be available inside the bwrap ro-bind at the same path."""
+        candidates = [
+            "/usr/bin/python3",
+            "/usr/bin/python3.11",
+            "/usr/bin/python3.12",
+            "/usr/bin/python3.9",
+            "/usr/bin/python",
+        ]
+        for c in candidates:
+            if Path(c).exists():
+                return c
+        return "python3"  # fallback, may fail — caught by grace window
+
     def _launch_ood_daemon(self) -> None:
         if self._shell is None or self._sandbox is None:
             raise RuntimeError("shell or sandbox missing for ood launch")
 
+        python3 = self._find_python3_in_sandbox()
         self._shell.sendline(
-            f"nohup python3 {OOD_DAEMON_SCRIPT} >{OOD_LOG_PATH} 2>&1 & disown; true"
+            f"nohup {python3} {OOD_DAEMON_SCRIPT} >{OOD_LOG_PATH} 2>&1 & disown; true"
         )
         self._await_prompt(self._shell_timeout)
 
