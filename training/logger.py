@@ -58,9 +58,9 @@ class RewardLogger:
 
     def log(self, step: int, records: list[Any]) -> StepMetrics:
         rewards = [float(r.reward) for r in records]
-        health = [float(r.grader_health) for r in records]
+        health = [float(getattr(r, "best_health", 0.0) or r.grader_health) for r in records]
         steps = [int(r.steps) for r in records]
-        solved = sum(1 for r in records if r.reward >= 1.0)
+        solved = sum(1 for r in records if bool(getattr(r, "terminated", False)))
         mix: dict[str, int] = {}
         for r in records:
             mix[r.task_id] = mix.get(r.task_id, 0) + 1
@@ -105,8 +105,10 @@ class RewardLogger:
                 payload = {
                     "task_id": getattr(r, "task_id", ""),
                     "reward": float(getattr(r, "reward", 0.0)),
+                    "last_reward": float(getattr(r, "last_reward", 0.0)),
                     "steps": int(getattr(r, "steps", 0)),
                     "grader_health": float(getattr(r, "grader_health", 0.0)),
+                    "best_health": float(getattr(r, "best_health", 0.0)),
                     "terminated": bool(getattr(r, "terminated", False)),
                     "truncated": bool(getattr(r, "truncated", False)),
                     "transcript": transcript,

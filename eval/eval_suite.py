@@ -191,7 +191,7 @@ def _summarize(rows: list[dict]) -> dict:
                 "policy": policy,
                 "scenario": scenario,
                 "n": len(items),
-                "solve_rate": sum(1 for r in rewards if r >= 1.0) / len(rewards),
+                "solve_rate": sum(1 for i in items if i.get("terminated")) / len(items),
                 "reward_mean": statistics.fmean(rewards),
                 "steps_mean": statistics.fmean(i["steps"] for i in items),
                 "health_mean": statistics.fmean(i["grader_health"] for i in items),

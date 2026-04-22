@@ -27,7 +27,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default=os.environ.get("HPC_MODEL", "google/gemma-4-e4b-it"))
     parser.add_argument("--output-dir", default="./runs/hpc_openenv_gemma")
     parser.add_argument("--group-size", type=int, default=4)
-    parser.add_argument("--max-turns", type=int, default=16)
+    # bumped from 16: scenarios like hpc_pid_stale / hpc_nfs_stale routinely
+    # take 10+ turns to even surface a useful observation, and a small
+    # instruct model spends several turns getting the format right. with
+    # the old 16 ceiling most rollouts truncated before the health signal
+    # moved. keep --max-turns a cli override.
+    parser.add_argument("--max-turns", type=int, default=24)
     parser.add_argument("--max-seq-length", type=int, default=4096)
     parser.add_argument("--num-train-steps", type=int, default=200)
     parser.add_argument("--learning-rate", type=float, default=2e-5)

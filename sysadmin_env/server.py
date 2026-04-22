@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import json
+from collections import OrderedDict
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Lock
 from typing import Any
 from uuid import uuid4
 
@@ -42,11 +45,63 @@ class EpisodeState:
 
 
 @dataclass
-class HttpSessionState:
-    episode_id: str | None = None
-    episode: EpisodeState | None = None
+class EpisodeSlot:
+    """single server-side episode keyed by its episode_id.
+
+    we used to keep a single `HttpSessionState` on the app; that made two
+    concurrent clients race each other because `reset` would clobber the
+    active episode. a fresh `EpisodeSlot` is created on every `/reset`
+    and stepped via its episode_id so group rollouts are isolated.
+    """
+
+    episode_id: str
+    episode: EpisodeState
     last_observation: Observation | None = None
     last_state: EnvironmentState | None = None
+
+
+@dataclass
+class HttpSessionStore:
+    """bounded lru of active episodes. old episodes are cleaned up when the
+    store exceeds `max_slots` so a long-running server does not leak
+    sandbox overlays. tuned conservatively for typical group sizes."""
+
+    max_slots: int = 16
+    _slots: "OrderedDict[str, EpisodeSlot]" = field(default_factory=OrderedDict)
+    _lock: Lock = field(default_factory=Lock)
+    _last_episode_id: str | None = None
+
+    def add(self, slot: EpisodeSlot) -> None:
+        with self._lock:
+            self._slots[slot.episode_id] = slot
+            self._slots.move_to_end(slot.episode_id)
+            self._last_episode_id = slot.episode_id
+
+    def evict_overflow(self, manager: "EpisodeManager") -> None:
+        with self._lock:
+            while len(self._slots) > self.max_slots:
+                _old_id, old_slot = self._slots.popitem(last=False)
+                manager.cleanup_episode(old_slot.episode)
+                print(f"http session store evicted {_old_id}")
+
+    def get(self, episode_id: str | None) -> EpisodeSlot | None:
+        with self._lock:
+            if episode_id is not None:
+                return self._slots.get(episode_id)
+            if self._last_episode_id is None:
+                return None
+            return self._slots.get(self._last_episode_id)
+
+    def pop(self, episode_id: str) -> EpisodeSlot | None:
+        with self._lock:
+            slot = self._slots.pop(episode_id, None)
+            if self._last_episode_id == episode_id:
+                self._last_episode_id = next(reversed(self._slots), None) if self._slots else None
+            return slot
+
+    def all_slots(self) -> list[EpisodeSlot]:
+        with self._lock:
+            return list(self._slots.values())
 
 
 class EpisodeManager:
@@ -156,21 +211,18 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
-            session: HttpSessionState = app.state.http_session
-            if session.episode is not None:
-                manager.cleanup_episode(session.episode)
+            store: HttpSessionStore = app.state.http_session_store
+            for slot in store.all_slots():
+                manager.cleanup_episode(slot.episode)
             manager.shutdown()
 
     app = FastAPI(lifespan=lifespan)
     app.state.episode_manager = manager
-    app.state.http_session = HttpSessionState()
+    app.state.http_session_store = HttpSessionStore()
 
     async def reset_episode(payload: ResetRequest | None = None) -> StepResult:
         manager: EpisodeManager = app.state.episode_manager
-        session: HttpSessionState = app.state.http_session
-        if session.episode is not None:
-            print("reset cleanup previous episode")
-            manager.cleanup_episode(session.episode)
+        store: HttpSessionStore = app.state.http_session_store
 
         requested_task_id = payload.task_id if payload is not None else None
         print(f"reset requested task {requested_task_id or 'auto'}")
@@ -193,29 +245,40 @@ def create_app() -> FastAPI:
             done=False,
             step_number=0,
             max_steps=episode.max_steps,
+            grader_health=float(episode.reward_state.last_health),
+            grader_details={},
+            ood_http_code="",
         )
-        state = _build_environment_state(episode, uuid4().hex, observation)
-        session.episode_id = state.episode_id
-        session.episode = episode
-        session.last_observation = observation
-        session.last_state = state
-        print(f"reset complete {state.task_id}")
+        episode_id = uuid4().hex
+        state = _build_environment_state(episode, episode_id, observation)
+        slot = EpisodeSlot(
+            episode_id=episode_id,
+            episode=episode,
+            last_observation=observation,
+            last_state=state,
+        )
+        store.add(slot)
+        store.evict_overflow(manager)
+        print(f"reset complete {state.task_id} episode_id {episode_id}")
         return StepResult(observation=observation, state=state)
 
     async def step_episode(payload: StepRequest) -> StepResult:
         manager: EpisodeManager = app.state.episode_manager
-        session: HttpSessionState = app.state.http_session
-        if session.episode is None or session.episode_id is None:
+        store: HttpSessionStore = app.state.http_session_store
+
+        slot = store.get(payload.episode_id)
+        if slot is None:
             raise HTTPException(status_code=409, detail="episode not initialized")
 
-        command_result = await session.episode.sandbox.execute_async(payload.action.command)
-        observation = _build_observation(manager, session.episode, payload.action.command, command_result)
-        state = _build_environment_state(session.episode, session.episode_id, observation)
-        session.last_observation = observation
-        session.last_state = state
+        command_result = await slot.episode.sandbox.execute_async(payload.action.command)
+        observation = _build_observation(manager, slot.episode, payload.action.command, command_result)
+        state = _build_environment_state(slot.episode, slot.episode_id, observation)
+        slot.last_observation = observation
+        slot.last_state = state
         if observation.done:
-            manager.cleanup_episode(session.episode)
-            session.episode = None
+            popped = store.pop(slot.episode_id)
+            if popped is not None:
+                manager.cleanup_episode(popped.episode)
         return StepResult(observation=observation, state=state)
 
     @app.get("/health")
@@ -231,11 +294,12 @@ def create_app() -> FastAPI:
         return await step_episode(payload)
 
     @app.get("/state", response_model=EnvironmentState)
-    async def state() -> EnvironmentState:
-        session: HttpSessionState = app.state.http_session
-        if session.last_state is None:
+    async def state(episode_id: str | None = None) -> EnvironmentState:
+        store: HttpSessionStore = app.state.http_session_store
+        slot = store.get(episode_id)
+        if slot is None or slot.last_state is None:
             raise HTTPException(status_code=404, detail="episode not initialized")
-        return session.last_state
+        return slot.last_state
 
     @app.get("/web", response_class=HTMLResponse)
     @app.get("/web/", response_class=HTMLResponse)
@@ -257,9 +321,10 @@ def create_app() -> FastAPI:
         return JSONResponse(_build_web_step_result(result))
 
     @app.get("/web/state")
-    async def web_state() -> JSONResponse:
-        session: HttpSessionState = app.state.http_session
-        return JSONResponse(_build_web_state(session))
+    async def web_state(episode_id: str | None = None) -> JSONResponse:
+        store: HttpSessionStore = app.state.http_session_store
+        slot = store.get(episode_id)
+        return JSONResponse(_build_web_state(slot))
 
     @app.get("/tasks")
     async def tasks() -> JSONResponse:
@@ -360,6 +425,9 @@ def _build_observation(
         done=done,
         step_number=episode.step_number,
         max_steps=episode.max_steps,
+        grader_health=float(computation.task_state.health),
+        grader_details=dict(computation.task_state.details),
+        ood_http_code="",
     )
 
 
@@ -396,8 +464,8 @@ def _build_web_step_result(result: StepResult) -> dict[str, Any]:
     }
 
 
-def _build_web_state(session: HttpSessionState) -> dict[str, Any]:
-    if session.last_state is None:
+def _build_web_state(slot: EpisodeSlot | None) -> dict[str, Any]:
+    if slot is None or slot.last_state is None:
         return {
             "episode_id": None,
             "task_id": None,
@@ -408,7 +476,7 @@ def _build_web_state(session: HttpSessionState) -> dict[str, Any]:
             "initialized": False,
         }
 
-    payload = session.last_state.model_dump()
+    payload = slot.last_state.model_dump()
     payload["initialized"] = True
     return payload
 
@@ -423,7 +491,11 @@ def _parse_web_step_request(payload: dict[str, Any]) -> StepRequest:
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
-    return StepRequest(action=action)
+    episode_id = payload.get("episode_id")
+    if episode_id is not None and not isinstance(episode_id, str):
+        raise HTTPException(status_code=422, detail="episode_id must be a string")
+
+    return StepRequest(action=action, episode_id=episode_id)
 
 
 def _render_web_interface_html() -> str:

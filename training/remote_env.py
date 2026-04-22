@@ -131,12 +131,16 @@ class HttpEnterpriseHPCEnv(gym.Env):
         data = self._pool.post_json(self._active_url, "/reset", body)
         self._absorb(data)
 
-        observation = self._observation_text(data["observation"])
+        obs_payload = data["observation"]
+        observation = self._observation_text(obs_payload)
         info = {
             "task_id": self._episode_task or "",
             "episode_id": self._episode_id or "",
             "max_steps": self._max_steps,
             "endpoint": self._active_url,
+            "grader_health": float(obs_payload.get("grader_health", 0.0)),
+            "grader_details": dict(obs_payload.get("grader_details") or {}),
+            "ood_http_code": str(obs_payload.get("ood_http_code", "")),
         }
         return observation, info
 
@@ -146,12 +150,20 @@ class HttpEnterpriseHPCEnv(gym.Env):
         if self._active_url is None:
             raise RuntimeError("HttpEnterpriseHPCEnv step called before reset")
 
-        body = {"action": {"command": action, "reasoning": None}}
+        body: dict[str, Any] = {
+            "action": {"command": action, "reasoning": None},
+        }
+        # include episode_id so the server-side multi-session store routes
+        # this step to the correct episode. older servers ignore the field.
+        if self._episode_id:
+            body["episode_id"] = self._episode_id
+
         data = self._pool.post_json(self._active_url, "/step", body)
         self._absorb(data)
-        obs = self._observation_text(data["observation"])
-        reward = float(data["observation"].get("reward", 0.0))
-        terminated = bool(data["observation"].get("done", False))
+        obs_payload = data["observation"]
+        obs = self._observation_text(obs_payload)
+        reward = float(obs_payload.get("reward", 0.0))
+        terminated = bool(obs_payload.get("done", False))
         truncated = (not terminated) and self._step_count >= self._max_steps
 
         info = {
@@ -159,9 +171,12 @@ class HttpEnterpriseHPCEnv(gym.Env):
             "episode_id": self._episode_id or "",
             "step": self._step_count,
             "max_steps": self._max_steps,
-            "exit_code": data["observation"].get("exit_code"),
+            "exit_code": obs_payload.get("exit_code"),
             "reward_source": "openenv_remote",
             "endpoint": self._active_url,
+            "grader_health": float(obs_payload.get("grader_health", 0.0)),
+            "grader_details": dict(obs_payload.get("grader_details") or {}),
+            "ood_http_code": str(obs_payload.get("ood_http_code", "")),
         }
         return obs, reward, terminated, truncated, info
 

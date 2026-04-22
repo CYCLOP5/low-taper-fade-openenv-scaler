@@ -19,43 +19,61 @@ GenerateFn = Callable[[list[list[dict[str, str]]]], list[str]]
 
 @dataclass
 class RolloutRecord:
+    # `reward` is the *cumulative* shaped reward collected during the rollout.
+    # useful as a dense progress signal when `terminated` is False. the final
+    # step's reward (on solve) is also reflected here because the server's
+    # evaluate_action returns a positive health_delta on the solving step.
     reward: float
     steps: int
     terminated: bool
     truncated: bool
     task_id: str
     transcript: list[dict[str, str]] = field(default_factory=list)
+    # latest grader_health observed during the rollout. server-side graders
+    # populate this 0..1 progress signal; clients without server support see 0.
     grader_health: float = 0.0
+    # peak health during the rollout. robust to transient regressions.
+    best_health: float = 0.0
     ood_http_code: str = ""
+    # the reward returned by the final env step. separate from the cumulative
+    # `reward` above so reward functions can distinguish "finished on a solve
+    # step" from "accumulated shaped progress".
+    last_reward: float = 0.0
 
 
 def score_single_shot(completions: Sequence[str], env: EnterpriseHPCEnv) -> list[RolloutRecord]:
     records: list[RolloutRecord] = []
     for completion in completions:
         env.reset()
-        reward = 0.0
+        cumulative_reward = 0.0
+        last_reward = 0.0
         health = 0.0
+        best_health = 0.0
         http_code = ""
         steps = 0
         terminated = False
         truncated = False
         task_id = env.scenario.TASK_ID
         for action in iter_actions(completion):
-            _, reward, terminated, truncated, info = env.step(action)
+            _, last_reward, terminated, truncated, info = env.step(action)
+            cumulative_reward += float(last_reward)
             steps += 1
             health = float(info.get("grader_health", 0.0))
+            best_health = max(best_health, health)
             http_code = str(info.get("ood_http_code", ""))
             if terminated or truncated:
                 break
         records.append(
             RolloutRecord(
-                reward=reward,
+                reward=cumulative_reward,
                 steps=steps,
                 terminated=terminated,
                 truncated=truncated,
                 task_id=task_id,
                 grader_health=health,
+                best_health=best_health,
                 ood_http_code=http_code,
+                last_reward=float(last_reward),
             )
         )
     return records
@@ -72,8 +90,10 @@ def run_interactive_group(
     transcripts: list[list[dict[str, str]]] = []
     observations: list[str] = []
     done: list[bool] = []
-    rewards: list[float] = [0.0] * group_size
+    cumulative_rewards: list[float] = [0.0] * group_size
+    last_rewards: list[float] = [0.0] * group_size
     health: list[float] = [0.0] * group_size
+    best_health: list[float] = [0.0] * group_size
     http_codes: list[str] = [""] * group_size
     steps_taken: list[int] = [0] * group_size
     terminated_list: list[bool] = [False] * group_size
@@ -85,6 +105,9 @@ def run_interactive_group(
         obs, info = env.reset(seed=seed_start + idx)
         envs.append(env)
         task_ids[idx] = info.get("task_id") or getattr(getattr(env, "scenario", None), "TASK_ID", "") or ""
+        initial_health = float(info.get("grader_health", 0.0))
+        health[idx] = initial_health
+        best_health[idx] = initial_health
         transcripts.append(
             [
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -125,8 +148,11 @@ def run_interactive_group(
 
                 obs, reward, terminated, truncated, info = envs[idx].step(command)
                 steps_taken[idx] += 1
-                rewards[idx] = reward
-                health[idx] = float(info.get("grader_health", 0.0))
+                last_rewards[idx] = float(reward)
+                cumulative_rewards[idx] += float(reward)
+                step_health = float(info.get("grader_health", 0.0))
+                health[idx] = step_health
+                best_health[idx] = max(best_health[idx], step_health)
                 http_codes[idx] = str(info.get("ood_http_code", ""))
                 terminated_list[idx] = bool(terminated)
                 truncated_list[idx] = bool(truncated)
@@ -149,14 +175,16 @@ def run_interactive_group(
 
     return [
         RolloutRecord(
-            reward=rewards[i],
+            reward=cumulative_rewards[i],
             steps=steps_taken[i],
             terminated=terminated_list[i],
             truncated=truncated_list[i],
             task_id=task_ids[i],
             transcript=transcripts[i],
             grader_health=health[i],
+            best_health=best_health[i],
             ood_http_code=http_codes[i],
+            last_reward=last_rewards[i],
         )
         for i in range(group_size)
     ]
@@ -167,7 +195,7 @@ def summarize_group(records: Sequence[RolloutRecord]) -> dict[str, float]:
         return {}
     rewards = [r.reward for r in records]
     steps = [r.steps for r in records]
-    solved = sum(1 for r in records if r.reward >= 1.0)
+    solved = sum(1 for r in records if r.terminated)
     return {
         "n": float(len(records)),
         "reward_mean": statistics.fmean(rewards),
@@ -175,6 +203,7 @@ def summarize_group(records: Sequence[RolloutRecord]) -> dict[str, float]:
         "solve_rate": solved / len(records),
         "steps_mean": statistics.fmean(steps),
         "health_mean": statistics.fmean(r.grader_health for r in records),
+        "best_health_mean": statistics.fmean(r.best_health for r in records),
     }
 
 
@@ -184,12 +213,14 @@ def run_fixed_policy(
     reset_options: dict[str, Any] | None = None,
 ) -> RolloutRecord:
     obs, info = env.reset(options=reset_options)
-    reward = 0.0
+    cumulative_reward = 0.0
+    last_reward = 0.0
     steps = 0
     terminated = False
     truncated = False
     task_id = info.get("task_id") or getattr(getattr(env, "scenario", None), "TASK_ID", "") or ""
-    health = 0.0
+    health = float(info.get("grader_health", 0.0))
+    best_health = health
     http_code = ""
     transcript = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -197,20 +228,24 @@ def run_fixed_policy(
     ]
     for command in actions:
         transcript.append({"role": "assistant", "content": f"<bash>{command}</bash>"})
-        obs, reward, terminated, truncated, info = env.step(command)
+        obs, last_reward, terminated, truncated, info = env.step(command)
+        cumulative_reward += float(last_reward)
         steps += 1
         health = float(info.get("grader_health", 0.0))
+        best_health = max(best_health, health)
         http_code = str(info.get("ood_http_code", ""))
         transcript.append({"role": "user", "content": f"step {steps} observation:\n{obs}"})
         if terminated or truncated:
             break
     return RolloutRecord(
-        reward=reward,
+        reward=cumulative_reward,
         steps=steps,
         terminated=terminated,
         truncated=truncated,
         task_id=task_id,
         transcript=transcript,
         grader_health=health,
+        best_health=best_health,
         ood_http_code=http_code,
+        last_reward=float(last_reward),
     )

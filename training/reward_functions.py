@@ -132,8 +132,12 @@ def make_reward_functions(
         return records
 
     def solve_reward(prompts, completions, **kwargs):
+        # binary rlvr: did the episode reach a terminal solved state? we key
+        # on the env's `terminated` flag rather than a numeric threshold on
+        # `reward`, because the server's shaped reward on the solving step
+        # is only the health_delta (typically ~0.4), not 1.0.
         records = _ensure_rollout(completions)
-        return [1.0 if float(r.reward) >= 1.0 else 0.0 for r in records]
+        return [1.0 if bool(r.terminated) else 0.0 for r in records]
 
     def format_reward(prompts, completions, **kwargs):
         # does this completion contain a parseable <bash>...</bash> block
@@ -151,17 +155,29 @@ def make_reward_functions(
         return scores
 
     def progress_reward(prompts, completions, **kwargs):
-        # partial credit from the task grader. bounded in [0, 1] so it cannot
-        # swamp the binary solve signal.
+        # dense shaped signal in [0, 0.5]. prefers the server-side grader
+        # health when available (best_health is monotone over the rollout)
+        # and falls back to a normalised cumulative shaped reward when the
+        # server cannot ship grader_health (older deployments).
         records = _ensure_rollout(completions)
-        return [0.5 * float(r.grader_health) for r in records]
+        scores: list[float] = []
+        for r in records:
+            health = float(r.best_health or r.grader_health)
+            if health > 0.0:
+                scores.append(0.5 * min(1.0, health))
+                continue
+            # fallback: tiny dense credit from accumulated shaped reward.
+            # clamp to [0, 0.2] so this cannot outbid solve_reward.
+            fallback = max(0.0, min(0.2, 0.5 * float(r.reward)))
+            scores.append(fallback)
+        return scores
 
     def efficiency_reward(prompts, completions, **kwargs):
         # reward solving quickly. caps at 0.2 so it cannot outbid solving.
         records = _ensure_rollout(completions)
         scores: list[float] = []
         for r in records:
-            if float(r.reward) < 1.0:
+            if not bool(r.terminated):
                 scores.append(0.0)
                 continue
             saved_turns = max(0, max_turns - int(r.steps))

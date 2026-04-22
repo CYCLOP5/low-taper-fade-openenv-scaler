@@ -26,6 +26,12 @@ class Observation(BaseModel):
     done: bool
     step_number: int = Field(ge=0)
     max_steps: int = Field(gt=0)
+    # optional progress signals populated by the server-side reward engine.
+    # clients that care about shaped progress (training) read these. older
+    # clients simply ignore them.
+    grader_health: float = 0.0
+    grader_details: dict[str, bool | float | str] = Field(default_factory=dict)
+    ood_http_code: str = ""
 
 
 class EnvironmentState(BaseModel):
@@ -43,6 +49,10 @@ class ResetRequest(BaseModel):
 
 class StepRequest(BaseModel):
     action: Action
+    # optional episode id so concurrent rollouts don't clobber each other's
+    # session. older clients that omit it fall back to the most recently
+    # created episode on the server.
+    episode_id: Optional[str] = None
 
 
 class StepResult(BaseModel):
