@@ -92,11 +92,13 @@ class HttpEnterpriseHPCEnv(gym.Env):
         self.action_space = spaces.Text(max_length=4096)
         self.observation_space = spaces.Text(max_length=65536)
 
+        _external_pool = pool is not None
         if pool is None:
             if isinstance(env_urls, str):
                 env_urls = [env_urls]
             pool = RemoteEndpointPool(env_urls, timeout=timeout)
         self._pool = pool
+        self._owns_pool = not _external_pool
         self._scenario = scenario
         self._scenario_pool = scenario_pool or ([scenario] if scenario else ["hpc_outage", "hpc_munge"])
         self._active_url: str | None = None
@@ -164,7 +166,8 @@ class HttpEnterpriseHPCEnv(gym.Env):
         return obs, reward, terminated, truncated, info
 
     def close(self) -> None:
-        self._pool.close()
+        if self._owns_pool:
+            self._pool.close()
 
     def _absorb(self, data: dict[str, Any]) -> None:
         state = data.get("state") or {}
