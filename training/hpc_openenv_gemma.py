@@ -13,7 +13,42 @@ import os
 import random
 import sys
 import time
+import warnings
 from pathlib import Path
+
+
+def _silence_noisy_warnings() -> None:
+    """suppress benign hf / torch generation warnings so the kaggle log is readable.
+
+    each filter targets a specific message we have confirmed is either a
+    false positive (we already configure the thing the warning complains
+    about) or is an upstream deprecation we cannot act on from here.
+
+    - ``max_new_tokens`` vs ``max_length``: trl's internal generate call
+      inherits the base model's default ``max_length=32768`` but our
+      ``max_new_tokens=384`` correctly takes precedence, as documented
+    - right-padding detected: our tokenizer is configured with
+      ``padding_side='left'`` (see ``_load_model_and_tokenizer``); trl
+      also re-fixes padding per batch
+    - ``AttentionMaskConverter`` / ``attention_mask_utils`` deprecation:
+      transformers v5.10 internal migration, unrelated to our code
+    """
+
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+    warnings.filterwarnings("ignore", message=r".*max_new_tokens.*max_length.*")
+    warnings.filterwarnings("ignore", message=r".*right-padding was detected.*")
+    warnings.filterwarnings("ignore", message=r".*AttentionMaskConverter.*")
+    warnings.filterwarnings("ignore", message=r".*attention_mask_utils.*")
+    warnings.filterwarnings("ignore", category=FutureWarning, module=r"transformers(\..*)?")
+    try:
+        from transformers.utils import logging as _hf_logging  # type: ignore
+
+        _hf_logging.set_verbosity_error()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+_silence_noisy_warnings()
 
 
 def _parse_args() -> argparse.Namespace:

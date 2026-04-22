@@ -25,6 +25,8 @@ the benchmark focuses on linux remediation rather than toy puzzle solving. the a
 
 ## round 2 artifacts at a glance
 
+- **live hf space**: [`huggingmenfordays/enterprise-hpc-openenv`](https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv) — public url `https://huggingmenfordays-enterprise-hpc-openenv.hf.space`, docker build with bwrap + overlayfs copy fallback, `/health`, `/reset`, `/step`, `/state`, `/tasks`, `/ws` all wired
+- **multi-session http server (apr 23 2026)**: [`sysadmin_env/server.py`](./sysadmin_env/server.py) now runs an lru-bounded `HttpSessionStore` keyed on a uuid `episode_id`, so `group_size > 1` remote rollouts against a single space no longer clobber each other. `Observation` in [`sysadmin_env/models.py`](./sysadmin_env/models.py) now carries `grader_health`, `grader_details`, and `ood_http_code`; `StepRequest` carries an optional `episode_id` forwarded by [`training/remote_env.py`](./training/remote_env.py)
 - **gymnasium env wrapper**: [`hpc_gym.py`](./hpc_gym.py) exposing `EnterpriseHPC-v0` with a pluggable scenario pool
 - **six hpc incident scenarios**: [`hpc_outage`](./sysadmin_env/tasks/hpc_outage.py), [`hpc_munge`](./sysadmin_env/tasks/hpc_munge.py), [`hpc_pid_stale`](./sysadmin_env/tasks/hpc_pid_stale.py), [`hpc_gpu_ecc`](./sysadmin_env/tasks/hpc_gpu_ecc.py), [`hpc_nfs_stale`](./sysadmin_env/tasks/hpc_nfs_stale.py), [`hpc_ood_apache`](./sysadmin_env/tasks/hpc_ood_apache.py) — route, auth, post-reboot pid, gpu ecc reset, stale nfs handle, and open ondemand apache config typo fault classes, rotated per rollout for generalization. this explicitly targets the **scaler ai labs multi-app rl environment for enterprise workflows** sub-theme: slurm control plane, munge auth, systemd service manager, nvidia gpu driver, nfs share, and httpd portal are six distinct apps the agent has to orchestrate inside one incident
 - **gpu-free reward curve demo**: [`tools/reward_curve_demo.py`](./tools/reward_curve_demo.py) replays a curriculum-annealed policy against the real grader and writes [`docs/assets/reward_curve_demo.png`](./docs/assets/reward_curve_demo.png) + `runs/reward_demo/reward_curve.jsonl` — observable evidence of reward improvement without a gpu, runs in under a minute on mac
@@ -241,9 +243,16 @@ for the http step route, the action is wrapped inside `StepRequest`:
   "action": {
     "command": "echo hello",
     "reasoning": null
-  }
+  },
+  "episode_id": "optional, uuid hex returned by /reset"
 }
 ```
+
+`episode_id` is **optional** (omitted = talks to the legacy singleton
+slot, for backward compatibility with older clients). supplying it is
+required whenever two or more clients share one server: the server
+keeps a bounded `HttpSessionStore` keyed on this id so concurrent
+`group_size > 1` rollouts do not clobber each other's sandbox.
 
 ### observation model
 
@@ -259,7 +268,10 @@ each step returns an `Observation`:
   "reward": 0.0,
   "done": false,
   "step_number": 1,
-  "max_steps": 40
+  "max_steps": 40,
+  "grader_health": 0.0,
+  "grader_details": {},
+  "ood_http_code": ""
 }
 ```
 
@@ -267,8 +279,11 @@ important details:
 
 - `reward` is **the reward for that step only**, not a cumulative return.
 - `done` becomes `true` when the task grader declares success, a catastrophic action is detected, or the episode hits `max_steps`.
-- `working_directory` is `/` from the sandbox’s point of view.
+- `working_directory` is `/` from the sandbox's point of view.
 - if a command times out, the server appends `command execution timed out` to `stderr`.
+- `grader_health` is the task grader's current health score on `[0, 1]` after this step. clients can use it directly as a shaped progress signal without reimplementing the grader. added apr 23 2026.
+- `grader_details` is a small dict of per-fact booleans / numbers / strings surfaced by the task's `grade()` function (e.g. `slurmd_restarted: true`, `ecc_reset_ok: true`) — useful for per-task diagnostics.
+- `ood_http_code` is populated only by `hpc_ood_apache` (the most recently observed apache status code) and empty otherwise.
 
 ### state model
 
@@ -371,7 +386,10 @@ executes one action inside the active episode sandbox and returns:
     "reward": 0.07,
     "done": false,
     "step_number": 1,
-    "max_steps": 40
+    "max_steps": 40,
+    "grader_health": 0.25,
+    "grader_details": {"slurm_reachable": true, "munge_up": true},
+    "ood_http_code": ""
   },
   "state": {
     "episode_id": "...",
@@ -384,11 +402,17 @@ executes one action inside the active episode sandbox and returns:
 }
 ```
 
-if no episode has been initialized, the route returns http `409`.
+if the requested `episode_id` is not in the server's session store (or
+no episode has been initialized and `episode_id` was omitted), the
+route returns http `409`. if the sandbox errors out mid-step, the
+server returns http `500` with a json body describing the failure.
 
 #### `GET /state`
 
-returns the latest `EnvironmentState`. if no episode has been initialized yet, the route returns http `404`.
+returns the latest `EnvironmentState`. accepts an optional
+`?episode_id=<uuid-hex>` query parameter to address a specific session
+in the store; without it the route returns the most-recently-reset
+episode. returns http `404` if no episode has been initialized yet.
 
 ### websocket flow: `WS /ws`
 
@@ -786,14 +810,24 @@ the apr 2026 openenv hackathon judges' self-serve guide (section 7) recommends u
 
 | reward fn | source | intent |
 | --- | --- | --- |
-| `solve_reward` | binary grader | deterministic rlvr signal, dominates the advantage |
+| `solve_reward` | `terminated` flag from rollout | deterministic rlvr signal, 1.0 iff the grader said "done" before step cap |
 | `format_reward` | regex on the completion | rewards well-formed `<bash>...</bash>` actions |
 | `safety_reward` | per-command destructive regex | penalizes `rm -rf /`, `mkfs`, fork-bombs, etc. |
-| `progress_reward` | terminal `grader_health`, scaled to `[0, 0.5]` | shaped partial credit |
-| `efficiency_reward` | `max_turns - steps`, scaled to `[0, 0.2]` on solve | encourages short solves |
+| `progress_reward` | `best_health` / `grader_health`, scaled to `[0, 0.5]` (cumulative-reward fallback for legacy servers) | shaped partial credit |
+| `efficiency_reward` | `max_turns - steps`, scaled to `[0, 0.2]` when `terminated` | encourages short solves |
 | `anti_hack_reward` | per-command regex vs. `GRADER_PROTECTED_PATTERNS` | flags edits to grader-owned paths (`slurm_state.json`, `/grader/`, ecc sentinel) |
 
 each component is logged independently so reviewers can tell which signal is driving training. the rollout is executed once per grpo step and cached keyed on `id(completions)`, so the six reward fns are cheap.
+
+> **apr 23 2026 fix**: `solve_reward` used to check `r.reward >= 1.0`,
+> but the server's shaped per-step reward is `health_delta + knowledge_delta - 0.01`
+> which peaks around `~0.4` even on the solving step. that meant
+> `solve_reward` was identically zero across every rollout and grpo saw
+> `reward_std = 0`. the trigger is now `bool(r.terminated)`.
+> `progress_reward` similarly depended on `grader_health` that was
+> never propagated into the client's `info` dict before the
+> `Observation` carried the new `grader_health` field. both paths are
+> wired end-to-end now.
 
 ### catastrophic action penalty
 
@@ -1153,12 +1187,20 @@ this matches the shape of the trl + gemma-4 + carla example from the gemma 4 lau
 
 ```bash
 python -m training.hpc_openenv_gemma \
-    --env-urls https://<user>-enterprise-hpc-openenv.hf.space \
-               https://<user>-enterprise-hpc-openenv-2.hf.space \
+    --env-urls https://huggingmenfordays-enterprise-hpc-openenv.hf.space \
     --model google/gemma-4-e4b-it \
-    --group-size 4 --max-turns 12 --num-train-steps 200 \
+    --group-size 4 --max-turns 24 --num-train-steps 200 \
+    --curriculum --save-adapter-only \
     --scenarios hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache
 ```
+
+the default `--max-turns` is now `24` (was `16` before apr 23 2026):
+multi-step scenarios like `hpc_pid_stale` and `hpc_nfs_stale` routinely
+need 10+ turns just to surface the right diagnostic output, and small
+instruct models spend several early turns getting `<bash>...</bash>`
+format compliance right. the server's per-episode session store lets
+you point `--group-size 4+` at a **single** space without the episode
+state-clobbering bug that was present in pre-apr-23 builds.
 
 ### managed hf jobs
 
@@ -1268,7 +1310,10 @@ both `Dockerfile` and `server/Dockerfile`:
 
 ### hugging face deployment
 
-the repository is prepared for a hugging face docker space.
+the repository is prepared for a hugging face docker space, and a
+reference deployment already lives at
+[`huggingmenfordays/enterprise-hpc-openenv`](https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv)
+(public url: `https://huggingmenfordays-enterprise-hpc-openenv.hf.space`).
 
 key points:
 
@@ -1281,10 +1326,42 @@ typical flow:
 
 1. build and test locally
 2. run `openenv validate`
-3. push the repository or space update
+3. push the repository or space update (recipe below)
 4. wait for the hugging face space to become healthy
 5. run `bash scripts/validate-submission.sh https://your-space.hf.space .`
 6. run your agent against the live deployment via `inference.py`
+
+#### pushing updates to the live space (orphan-branch recipe)
+
+this repo carries `.venv/` and `docs/assets/*.png` binaries in git
+history that hf xet refuses to accept. a plain
+`git push space final-round:main` gets rejected with
+`pre-receive hook declined / your push was rejected because it contains binary files`.
+use the orphan-branch force-push instead:
+
+```bash
+hf auth login                                                                  # refresh write token
+
+git remote set-url space https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv
+
+git checkout --orphan space-deploy
+git rm -rf --cached .
+rm -f docs/assets/reward_curve_demo.png                                        # drop any binary that would re-trip xet
+git add -A
+git commit -m "deploy: clean snapshot for hf space"
+git push space space-deploy:main --force
+
+git checkout final-round
+git branch -D space-deploy
+git checkout HEAD -- docs/assets/reward_curve_demo.png                         # restore the png locally
+```
+
+this force-pushes a one-commit history-less snapshot to the space's
+`main` branch; your local `final-round` history is untouched. the
+docker build takes 5 – 10 min, then `curl <space>/health` should return
+`{"status":"ok"}`. the same recipe is documented in
+[`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md) §2.1 and
+[`TODO_FOR_USER.md`](./TODO_FOR_USER.md) §2.
 
 ### openenv submission commands
 

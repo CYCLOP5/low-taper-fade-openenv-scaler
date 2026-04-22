@@ -6,10 +6,23 @@ artifacts in this repo. every section of the guide is covered here, with the
 file paths, commands, and rationale a judge can follow in under five minutes.
 
 > **tl;dr** every explicit "must do" from the guide is implemented. the only
-> items the repo cannot self-complete are the three blockers tracked in
-> [`TODO_FOR_USER.md`](./TODO_FOR_USER.md): a real gpu grpo training curve, a
-> live hugging face space, and the 90-second demo video. gpu-free evidence of
+> items the repo cannot self-complete are the two blockers tracked in
+> [`TODO_FOR_USER.md`](./TODO_FOR_USER.md): a real gpu grpo training curve
+> and the 90-second demo video. the live hugging face space
+> (`huggingmenfordays/enterprise-hpc-openenv`) is deployed. gpu-free evidence of
 > reward improvement already lives in [`docs/assets/reward_curve_demo.png`](./docs/assets/reward_curve_demo.png).
+
+> **apr 23 2026 update**: the remote rollout pipeline was rewritten so
+> `group_size > 1` against a single hf space no longer clobbers
+> episode state. the server ([`sysadmin_env/server.py`](./sysadmin_env/server.py))
+> now runs an lru-bounded `HttpSessionStore` keyed on a uuid
+> `episode_id`; `Observation` carries `grader_health`,
+> `grader_details`, and `ood_http_code`; and
+> [`training/reward_functions.py`](./training/reward_functions.py) now
+> triggers `solve_reward` on `terminated` (not a reward threshold) and
+> consumes the propagated `grader_health` for `progress_reward`. this
+> fixed a `frac_reward_zero_std = 1` stall observed on the first full
+> kaggle probe run.
 
 ## 0. what you are building → environment + verifier + trainer + deployment
 
@@ -86,6 +99,10 @@ independently so reviewers can see which signal is driving updates.
 
 - **multiple independent signals**: see §7 above
 - **locked-down execution**: [`sysadmin_env/sandbox.py`](./sysadmin_env/sandbox.py) uses bubblewrap with unshared namespaces, read-only binds, and optional `--unshare-net`
+- **per-episode session isolation**: the server's `HttpSessionStore`
+  keyed on uuid `episode_id` means one rollout cannot observe or
+  corrupt another rollout's sandbox even when many clients share the
+  same space — no cross-episode information leak
 - **time limits**: `DEFAULT_STEP_TIMEOUT = 60s`, `DEFAULT_SHELL_TIMEOUT = 30s`, `max_runtime_minutes: 20` in `openenv.yaml`
 - **avoid unrestricted globals**: slurm state is a json file guarded with `fcntl` locks, not a python global
 - **sample + inspect**: `RewardLogger` now writes `runs/<run>/transcripts/step_NNNN.jsonl` every `transcript_sample_every` steps (default 5). see [`training/logger.py`](./training/logger.py)
@@ -126,11 +143,13 @@ bounded, and the grader's `grade()` is pure python with no llm in the loop.
 
 ## 13. deploy early
 
+- live space: [`huggingmenfordays/enterprise-hpc-openenv`](https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv) — public url `https://huggingmenfordays-enterprise-hpc-openenv.hf.space`
 - `Dockerfile`s are already tuned for hf spaces
-- [`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md) has the one-shot
-  push recipe
-- `TODO_FOR_USER.md` section 2 tracks the final "create space + push" step
-  (requires hf credentials and is out of sandbox reach)
+- [`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md) covers both
+  the first-time push and the **orphan-branch redeploy trick** needed
+  to push over our history (xet rejects the `.venv/` + png binaries in
+  the `final-round` history)
+- `TODO_FOR_USER.md` section 2 has the exact copy-pasteable push recipe
 
 ## 14. scale after stable
 
@@ -249,8 +268,8 @@ org, the tutorial examples, and the mega-lecture modules.
 
 items in `TODO_FOR_USER.md`:
 
-1. capture a real gpu grpo reward curve (colab notebook is ready)
-2. deploy to hf spaces (credentials required)
+1. capture a real gpu grpo reward curve (colab / kaggle notebook is ready; apr 23 reward-pipeline fixes land on next `git pull`)
+2. ~~deploy to hf spaces~~ ✅ live at `huggingmenfordays/enterprise-hpc-openenv`
 3. record the 90-second demo video
 4. submit the form
 

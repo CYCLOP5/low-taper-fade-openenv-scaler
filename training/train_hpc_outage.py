@@ -12,8 +12,24 @@ import os
 import random
 import sys
 import time
+import warnings
 from pathlib import Path
 from typing import Any
+
+# silence benign hf / torch generation warnings so the training log is readable.
+# see training/hpc_openenv_gemma.py::_silence_noisy_warnings for rationale.
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+warnings.filterwarnings("ignore", message=r".*max_new_tokens.*max_length.*")
+warnings.filterwarnings("ignore", message=r".*right-padding was detected.*")
+warnings.filterwarnings("ignore", message=r".*AttentionMaskConverter.*")
+warnings.filterwarnings("ignore", message=r".*attention_mask_utils.*")
+warnings.filterwarnings("ignore", category=FutureWarning, module=r"transformers(\..*)?")
+try:
+    from transformers.utils import logging as _hf_logging  # type: ignore
+
+    _hf_logging.set_verbosity_error()
+except Exception:  # noqa: BLE001
+    pass
 
 
 def _parse_args() -> argparse.Namespace:

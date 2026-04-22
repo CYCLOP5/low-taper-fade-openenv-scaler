@@ -9,6 +9,36 @@ legend
 - **[BONUS]**  meaningful boost on the rubric, not required
 - **[POLISH]** last-minute polish if you have time
 
+## apr 23 2026 — reward pipeline + session isolation fixes shipped
+
+after a kaggle probe run showed `solve_reward=0`, `progress_reward=0`,
+and `frac_reward_zero_std=1` across 10 grpo steps, the whole remote
+rollout stack was rewritten. what landed on `final-round`:
+
+- `sysadmin_env/server.py` now uses an **`HttpSessionStore`** (lru-bounded
+  `OrderedDict` of `EpisodeSlot`s) keyed on a uuid `episode_id`, so
+  `group_size > 1` rollouts no longer clobber each other
+- `sysadmin_env/models.py`: `Observation` gained `grader_health`,
+  `grader_details`, `ood_http_code`; `StepRequest` gained optional
+  `episode_id`
+- `training/remote_env.py`: client stores the `episode_id` from `/reset`
+  and forwards it on every `/step`; reads the new observation fields
+  into `info`
+- `training/rollout.py`: `RolloutRecord.reward` is now **cumulative**,
+  plus a new `best_health` peak-health tracker and `last_reward` tail
+- `training/reward_functions.py`: `solve_reward` now triggers on
+  `terminated` (not `reward >= 1.0` which never fired);
+  `progress_reward` consumes `best_health` / `grader_health` with a
+  cumulative-reward fallback for backward compat with older servers;
+  `efficiency_reward` mirrors the terminated-flag logic
+- `training/hpc_openenv_gemma.py`: default `--max-turns` bumped from 16
+  → 24 (multi-step scenarios routinely take 10+ turns on a 1.5b model)
+- the hf space at `huggingmenfordays/enterprise-hpc-openenv` has been
+  force-pushed with these changes
+
+**before your next kaggle run**: `git pull` inside `/kaggle/working/repo`
+to grab these fixes. the live space has already been rebuilt.
+
 ## 1 [BLOCKER] capture a reward curve on a real gpu
 
 **partial credit already banked**: `docs/assets/reward_curve_demo.png`
@@ -46,6 +76,35 @@ and `README.md` to inline the chart and link the hub artifacts.
 
 space: https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv
 live url: https://huggingmenfordays-enterprise-hpc-openenv.hf.space
+
+### pushing updates to the space
+
+you only need the orphan-branch trick because our git history has
+`.venv/` + `docs/assets/*.png` binaries that hf xet will reject. do not
+try `git push space final-round:main` directly — it will fail with
+`pre-receive hook declined`. use this instead:
+
+```bash
+hf auth login                                     # once per machine
+
+git remote set-url space https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv
+
+git checkout --orphan space-deploy
+git rm -rf --cached .
+rm -f docs/assets/reward_curve_demo.png           # any binary that would trip xet
+
+git add -A
+git commit -m "deploy: clean snapshot for hf space"
+git push space space-deploy:main --force
+
+git checkout final-round
+git branch -D space-deploy
+git checkout HEAD -- docs/assets/reward_curve_demo.png
+```
+
+that force-pushes a one-commit history-less snapshot to the space's
+`main`. your local `final-round` is untouched. full explanation lives
+in [`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md) §2.1.
 
 _original instructions below for reference_
 

@@ -87,12 +87,17 @@ curl -X POST http://127.0.0.1:8000/step -H 'content-type: application/json' \
 
 ## 4 deploy to hugging face spaces (for remote training)
 
-this is required if you want to train via `--env-urls https://...`.
+this is required if you want to train via `--env-urls https://...`. the
+reference deployment lives at
+[`huggingmenfordays/enterprise-hpc-openenv`](https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv)
+(public url: `https://huggingmenfordays-enterprise-hpc-openenv.hf.space`).
+
+### first-time push
 
 1. create a new space on huggingface.co — type `Docker`, any hardware tier
 2. push this repo to the space:
    ```bash
-   huggingface-cli login           # once
+   hf auth login           # once
    huggingface-cli repo create enterprise-hpc-openenv --type space --space_sdk docker
    git remote add space https://huggingface.co/spaces/<user>/enterprise-hpc-openenv
    git push space main
@@ -103,6 +108,33 @@ this is required if you want to train via `--env-urls https://...`.
    ```bash
    curl https://<user>-enterprise-hpc-openenv.hf.space/health
    ```
+
+### redeploying updates (orphan-branch trick)
+
+this repo has `.venv/` and `docs/assets/*.png` binaries sitting in git
+history that hf xet refuses to accept. a plain
+`git push space final-round:main` will be rejected with
+`pre-receive hook declined`. force-push a clean orphan snapshot instead:
+
+```bash
+hf auth login                                                                  # ensure token is live
+git remote set-url space https://huggingface.co/spaces/<user>/enterprise-hpc-openenv
+
+git checkout --orphan space-deploy
+git rm -rf --cached .
+rm -f docs/assets/reward_curve_demo.png                                        # drop binaries hf xet trips on
+git add -A
+git commit -m "deploy: clean snapshot for hf space"
+git push space space-deploy:main --force
+
+git checkout final-round
+git branch -D space-deploy
+git checkout HEAD -- docs/assets/reward_curve_demo.png                         # restore the png locally
+```
+
+your local `final-round` history stays intact; only the space's `main`
+is rewritten. the build takes 5-10 min; hit `/health` to confirm it
+came up green.
 
 full guide: [`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md)
 
@@ -129,11 +161,16 @@ python -m training.hpc_openenv_gemma \
   --env-urls https://<user>-enterprise-hpc-openenv.hf.space \
              https://<user>-enterprise-hpc-openenv-2.hf.space \
   --model google/gemma-4-e4b-it \
-  --group-size 4 --max-turns 12 --num-train-steps 200
+  --group-size 4 --max-turns 24 --num-train-steps 200 \
+  --curriculum --save-adapter-only
 ```
 
 the pool round-robins across every `--env-urls` entry for parallel
-rollouts.
+rollouts. as of apr 23 2026 the remote server supports per-episode
+sessions (keyed on `episode_id`), so `group_size > 1` against a single
+space no longer clobbers episode state. the default `--max-turns` is
+now `24` — many scenarios need 10+ turns once format compliance and
+diagnostic steps are accounted for.
 
 ### path C — hf jobs (fully managed, gpu-on-demand)
 
