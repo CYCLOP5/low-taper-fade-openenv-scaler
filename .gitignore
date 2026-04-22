@@ -3,5 +3,7 @@ __pycache__/
 .pytest_cache/
 assets/runtime/
 .venv/
+env/
+venv/
 *.egg-info/
 unsloth_compiled_cache/
