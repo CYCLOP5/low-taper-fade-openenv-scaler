@@ -215,6 +215,7 @@ def _load_model_and_tokenizer(args: argparse.Namespace):
                 random_state=args.seed,
             )
             FastLanguageModel.for_inference(model)
+            tokenizer.padding_side = "left"
             return model, tokenizer, "unsloth"
         except Exception as _ue:  # noqa: BLE001
             # Unsloth raises RuntimeError/AssertionError on CUDA/version mismatch, not just ImportError
@@ -226,7 +227,7 @@ def _load_model_and_tokenizer(args: argparse.Namespace):
     from transformers import AutoModelForCausalLM  # type: ignore
     from transformers import AutoTokenizer  # type: ignore
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, use_fast=True, padding_side="left")
     try:
         from transformers import AutoModelForMultimodalLM  # type: ignore
 
