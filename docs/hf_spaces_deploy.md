@@ -28,9 +28,9 @@ git push space main
 ```
 
 the space will pick up `Dockerfile` automatically. the build takes a
-few minutes because uv installs the full dependency tree. you do not
-need `app.py`; the `CMD` at the bottom of the Dockerfile starts the
-openenv server on `:8000`.
+few minutes because `pip install .` pulls the full dependency tree on
+python 3.13. you do not need `app.py`; the `CMD` at the bottom of the
+Dockerfile starts the openenv server on `:8000`.
 
 ## 3 expose the port correctly
 
@@ -45,7 +45,7 @@ and adjust the Dockerfile `CMD` to read `$PORT` or override with a
 space setting. or simpler, change the last line of the Dockerfile to:
 
 ```
-CMD ["sh", "-c", "uv run server --host 0.0.0.0 --port ${PORT:-7860}"]
+CMD ["sh", "-c", "server --host 0.0.0.0 --port ${PORT:-7860}"]
 ```
 
 ## 4 user namespaces on spaces

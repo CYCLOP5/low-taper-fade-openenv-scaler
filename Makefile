@@ -11,7 +11,8 @@ RUN_DIR ?= ./runs/hpc_grpo
 
 help:
 	@echo "Targets for EnterpriseHPC-v0"
-	@echo "  make install       install python dependencies"
+	@echo "  make install       install runtime + dev deps (pip install -e '.[dev]')"
+	@echo "  make install-train install runtime + dev + gpu training deps + unsloth"
 	@echo "  make bench         reset-latency benchmark (200 iterations)"
 	@echo "  make gold          prove every scenario is solvable (deterministic)"
 	@echo "  make eval          run gold/random/bad policies + leaderboard.md"
@@ -25,7 +26,12 @@ help:
 	@echo "  make clean         remove runs/ caches"
 
 install:
-	$(PYTHON) -m pip install -r requirements.txt
+	$(PYTHON) -m pip install --upgrade pip setuptools wheel
+	$(PYTHON) -m pip install -e '.[dev]'
+
+install-train:
+	$(PYTHON) -m pip install -e '.[dev,train]'
+	$(PYTHON) -m pip install --no-deps 'unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git'
 
 bench:
 	$(PYTHON) -m bench.bench_reset -n 200
@@ -65,7 +71,7 @@ train-remote:
 	  --output-dir $(RUN_DIR)
 
 serve:
-	uv run server --host 0.0.0.0 --port 8000
+	$(PYTHON) -m server.app --host 0.0.0.0 --port 8000
 
 reward-demo:
 	$(PYTHON) -m tools.reward_curve_demo --output-dir ./runs/reward_demo

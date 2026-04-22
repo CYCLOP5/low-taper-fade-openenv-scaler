@@ -1,5 +1,10 @@
+bench
 client
+eval
+hpc_gym
 inference
 models
 server
 sysadmin_env
+tools
+training

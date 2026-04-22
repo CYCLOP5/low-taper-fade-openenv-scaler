@@ -1,0 +1,100 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sysadmin-env"
+version = "0.3.0"
+description = "OpenEnv-style multi-app HPC SRE environment for enterprise workflow reinforcement learning"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "sysadmin env contributors" },
+]
+keywords = [
+    "openenv",
+    "reinforcement-learning",
+    "hpc",
+    "sre",
+    "slurm",
+    "grpo",
+    "gemma",
+    "trl",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "License :: OSI Approved :: Apache Software License",
+]
+dependencies = [
+    "fastapi>=0.136.0",
+    "uvicorn>=0.45.0",
+    "pydantic>=2.13.0",
+    "websockets>=16.0",
+    "httpx>=0.28.1",
+    "openenv-core>=0.2.3",
+    "openai>=2.32.0",
+    "gymnasium>=1.2.3",
+    "pexpect>=4.9.0",
+    "matplotlib>=3.9.0",
+    "numpy>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "ruff>=0.8.0",
+]
+train = [
+    "torch>=2.6.0",
+    "transformers>=4.50.0",
+    "trl>=0.12.0",
+    "datasets>=3.0.0",
+    "accelerate>=1.0.0",
+    "peft>=0.13.0",
+    "bitsandbytes>=0.44.0",
+    "tensorboard>=2.18.0",
+    "huggingface_hub>=0.26.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-user/low-taper-fade-openenv-scaler"
+Repository = "https://github.com/your-user/low-taper-fade-openenv-scaler"
+
+[project.scripts]
+server = "server.app:main"
+
+[tool.setuptools]
+py-modules = [
+    "client",
+    "inference",
+    "hpc_gym",
+    "models",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "sysadmin_env*",
+    "server*",
+    "training*",
+    "tools*",
+    "eval*",
+    "bench*",
+]
+exclude = [
+    "tests*",
+    ".venv*",
+    "runs*",
+    "outputs*",
+    "assets*",
+    "docs*",
+    "scripts*",
+    "sysadmin_env.egg-info*",
+]

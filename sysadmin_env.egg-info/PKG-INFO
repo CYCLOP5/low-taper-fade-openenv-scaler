@@ -1,19 +1,46 @@
 Metadata-Version: 2.4
 Name: sysadmin-env
-Version: 0.2.0
-Summary: OpenEnv-style environment for linux server auto remediation tasks
+Version: 0.3.0
+Summary: OpenEnv-style multi-app HPC SRE environment for enterprise workflow reinforcement learning
 Author: sysadmin env contributors
-Requires-Python: <3.14,>=3.11
+License: Apache-2.0
+Project-URL: Homepage, https://github.com/your-user/low-taper-fade-openenv-scaler
+Project-URL: Repository, https://github.com/your-user/low-taper-fade-openenv-scaler
+Keywords: openenv,reinforcement-learning,hpc,sre,slurm,grpo,gemma,trl
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: Python :: 3.14
+Classifier: Intended Audience :: Science/Research
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Operating System :: MacOS :: MacOS X
+Classifier: License :: OSI Approved :: Apache Software License
+Requires-Python: >=3.12
 Description-Content-Type: text/markdown
-Requires-Dist: fastapi==0.115.12
-Requires-Dist: uvicorn==0.34.2
-Requires-Dist: pydantic==2.11.1
-Requires-Dist: websockets==15.0.1
-Requires-Dist: httpx==0.28.1
-Requires-Dist: openenv-core>=0.2.0
-Requires-Dist: openai==2.11.0
+Requires-Dist: fastapi>=0.136.0
+Requires-Dist: uvicorn>=0.45.0
+Requires-Dist: pydantic>=2.13.0
+Requires-Dist: websockets>=16.0
+Requires-Dist: httpx>=0.28.1
+Requires-Dist: openenv-core>=0.2.3
+Requires-Dist: openai>=2.32.0
+Requires-Dist: gymnasium>=1.2.3
+Requires-Dist: pexpect>=4.9.0
+Requires-Dist: matplotlib>=3.9.0
+Requires-Dist: numpy>=2.0.0
 Provides-Extra: dev
-Requires-Dist: pytest==8.3.5; extra == "dev"
+Requires-Dist: pytest>=9.0.0; extra == "dev"
+Requires-Dist: ruff>=0.8.0; extra == "dev"
+Provides-Extra: train
+Requires-Dist: torch>=2.6.0; extra == "train"
+Requires-Dist: transformers>=4.50.0; extra == "train"
+Requires-Dist: trl>=0.12.0; extra == "train"
+Requires-Dist: datasets>=3.0.0; extra == "train"
+Requires-Dist: accelerate>=1.0.0; extra == "train"
+Requires-Dist: peft>=0.13.0; extra == "train"
+Requires-Dist: bitsandbytes>=0.44.0; extra == "train"
+Requires-Dist: tensorboard>=2.18.0; extra == "train"
+Requires-Dist: huggingface_hub>=0.26.0; extra == "train"
 
 ---
 title: sysadmin env
@@ -39,6 +66,64 @@ this repository is intentionally built around the round 1 submission contract:
 - deployment metadata in `openenv.yaml`, `Dockerfile`, `server/Dockerfile`, and `pyproject.toml`
 
 the benchmark focuses on linux remediation rather than toy puzzle solving. the agent is not selecting from a fixed action list: it must decide which shell command to run, interpret command output, repair the underlying fault, and stop before wasting steps.
+
+## round 2 artifacts at a glance
+
+- **gymnasium env wrapper**: [`hpc_gym.py`](./hpc_gym.py) exposing `EnterpriseHPC-v0` with a pluggable scenario pool
+- **six hpc incident scenarios**: [`hpc_outage`](./sysadmin_env/tasks/hpc_outage.py), [`hpc_munge`](./sysadmin_env/tasks/hpc_munge.py), [`hpc_pid_stale`](./sysadmin_env/tasks/hpc_pid_stale.py), [`hpc_gpu_ecc`](./sysadmin_env/tasks/hpc_gpu_ecc.py), [`hpc_nfs_stale`](./sysadmin_env/tasks/hpc_nfs_stale.py), [`hpc_ood_apache`](./sysadmin_env/tasks/hpc_ood_apache.py) — route, auth, post-reboot pid, gpu ecc reset, stale nfs handle, and open ondemand apache config typo fault classes, rotated per rollout for generalization. this explicitly targets the **scaler ai labs multi-app rl environment for enterprise workflows** sub-theme: slurm control plane, munge auth, systemd service manager, nvidia gpu driver, nfs share, and httpd portal are six distinct apps the agent has to orchestrate inside one incident
+- **gpu-free reward curve demo**: [`tools/reward_curve_demo.py`](./tools/reward_curve_demo.py) replays a curriculum-annealed policy against the real grader and writes [`docs/assets/reward_curve_demo.png`](./docs/assets/reward_curve_demo.png) + `runs/reward_demo/reward_curve.jsonl` — observable evidence of reward improvement without a gpu, runs in under a minute on mac
+- **reset latency bench**: [`bench/bench_reset.py`](./bench/bench_reset.py) — **p50 2.40 ms** in copy fallback, sub 1 ms on fuse-overlayfs hosts
+- **gold trajectory verifier**: [`tools/verify_gold_trajectory.py`](./tools/verify_gold_trajectory.py) proves every scenario is deterministically solvable
+- **eval / leaderboard**: [`eval/eval_suite.py`](./eval/eval_suite.py) — gold vs random vs bad policies, writes markdown leaderboard
+- **local grpo training**: [`training/train_hpc_outage.py`](./training/train_hpc_outage.py) with unsloth + **`google/gemma-4-e4b-it`** + trl `GRPOTrainer`
+- **remote openenv grpo training**: [`training/hpc_openenv_gemma.py`](./training/hpc_openenv_gemma.py) using `--env-urls` pointing to hosted hf spaces, same shape as the trl + gemma-4 + carla launch example
+- **hf jobs submitter**: [`training/hf_jobs.py`](./training/hf_jobs.py) ships the training run as a managed hf job
+- **metric logger**: [`training/logger.py`](./training/logger.py) writes `runs/<name>.metrics.jsonl` plus optional wandb + hf hub uploads
+- **colab notebook**: [`training/hpc_colab.ipynb`](./training/hpc_colab.ipynb) runs the full pipeline on a single gpu, covers local and remote paths
+- **one-line reproduction**: [`Makefile`](./Makefile) with `make gold`, `make bench`, `make eval`, `make dry`, `make train`, `make train-remote`
+- **pitch + storytelling**: [`docs/pitch.md`](./docs/pitch.md), [`docs/hf_blog.md`](./docs/hf_blog.md), [`docs/video_script.md`](./docs/video_script.md)
+- **deploy paths**: [`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md), [`docs/hf_jobs.md`](./docs/hf_jobs.md)
+- **one-page setup guide**: [`GETTING_STARTED.md`](./GETTING_STARTED.md)
+- **hackathon task list**: [`TODO_FOR_USER.md`](./TODO_FOR_USER.md)
+
+## table of contents
+
+- [round 2 theme alignment](#round-2-theme-alignment)
+- [why linux remediation is a meaningful benchmark](#why-linux-remediation-is-a-meaningful-benchmark)
+- [round 1 requirement mapping](#round-1-requirement-mapping)
+- [high-level architecture](#high-level-architecture)
+- [repository layout and file roles](#repository-layout-and-file-roles)
+- [runtime model actions observations state and episode boundaries](#runtime-model-actions-observations-state-and-episode-boundaries)
+- [api reference](#api-reference)
+- [sandbox and filesystem model](#sandbox-and-filesystem-model)
+- [task suite](#task-suite)
+- [reward and scoring system](#reward-and-scoring-system)
+- [local setup](#local-setup)
+- [running the server locally](#running-the-server-locally)
+- [inference usage](#inference-usage)
+- [baseline behavior and current observations](#baseline-behavior-and-current-observations)
+- [validation flow](#validation-flow)
+- [docker and deployment flow](#docker-and-deployment-flow)
+- [mathematical summary of each task’s total raw return](#mathematical-summary-of-each-tasks-total-raw-return)
+- [limitations and portability notes](#limitations-and-portability-notes)
+- [practical quickstart](#practical-quickstart)
+
+## round 2 theme alignment
+
+this repository targets the following judging theme coverage:
+
+- **primary theme #3.1 — world modeling / professional tasks**: the env is a partially observable rocky linux hpc cluster (mock slurm, munge, systemd, nvidia gpu, nfs, apache open ondemand). the agent must interact with real-looking tools, maintain state between steps, and cannot shortcut to the grader. the reward only goes up when system state actually changes.
+- **bonus sub-theme — scaler ai labs multi-app rl environment for enterprise workflows**: each scenario exercises multiple "apps" at once. `hpc_ood_apache` touches httpd + systemd + the ood portal; `hpc_gpu_ecc` touches slurm + nvidia driver + systemd; `hpc_nfs_stale` touches nfs + slurm + systemd. these are the exact multi-app enterprise remediations on-call sre teams do every week.
+- **secondary theme #2 — long-horizon planning & instruction following**: the agent must decompose each incident into diagnosis, repair, verify, and stop. gold trajectories are 8 – 14 steps long and reward shaping is sparse enough to reward genuine multi-step planning.
+
+the full judging rubric is addressed by the repository layout as follows:
+
+| rubric axis | weight | where we deliver |
+| --- | ---: | --- |
+| environment innovation | 40% | nine deterministic tasks, three of them brand new multi-app hpc incidents (`hpc_gpu_ecc`, `hpc_nfs_stale`, `hpc_ood_apache`), bubblewrap + overlayfs isolation with sub-10 ms resets, binary + shaped reward dual-head |
+| storytelling | 30% | pitch, hf blog draft, video script under `docs/`, live tmux demo via `make eval` and `make reward-demo`, clean before / after leaderboards |
+| showing improvement in rewards | 20% | `tools/reward_curve_demo.py` writes a curriculum-annealed reward curve png + jsonl in under a minute, no gpu required. real grpo curves come from the colab notebook |
+| reward + training pipeline | 10% | `sysadmin_env/rewards.py` shaped rewards + trl `GRPOTrainer` with unsloth + gemma 4 + openenv client, see `training/hpc_openenv_gemma.py` |
 
 ## why linux remediation is a meaningful benchmark
 
@@ -70,12 +155,12 @@ the table below maps the repository to the practical requirements of the round 1
 | --- | --- |
 | deployable environment server | `FastAPI` app in `sysadmin_env/server.py`, cli wrapper in `server/app.py`, docker entrypoints in `Dockerfile` and `server/Dockerfile` |
 | standard episode api | `POST /reset`, `POST /step`, `GET /state`, `GET /health`, `GET /tasks`, `WS /ws` |
-| deterministic tasks | three fixed task modules in `sysadmin_env/tasks/nginx_crash.py`, `sysadmin_env/tasks/disk_full.py`, and `sysadmin_env/tasks/network_broken.py` |
+| deterministic tasks | nine fixed task modules in `sysadmin_env/tasks/nginx_crash.py`, `sysadmin_env/tasks/disk_full.py`, `sysadmin_env/tasks/network_broken.py`, `sysadmin_env/tasks/hpc_outage.py`, `sysadmin_env/tasks/hpc_munge.py`, `sysadmin_env/tasks/hpc_pid_stale.py`, `sysadmin_env/tasks/hpc_gpu_ecc.py`, `sysadmin_env/tasks/hpc_nfs_stale.py`, and `sysadmin_env/tasks/hpc_ood_apache.py` |
 | real command execution | bubblewrap-based sandbox in `sysadmin_env/sandbox.py` with mutable task state layered over prepared filesystems |
 | reward shaping | `RewardEngine` in `sysadmin_env/rewards.py` combines health deltas, one-time diagnostic rewards, and penalties |
 | agent entrypoint | `inference.py` loads env vars, queries `/tasks`, connects to `/ws`, emits `[START]`, `[STEP]`, and `[END]` logs |
 | packaging for openenv | root shim files `client.py`, `models.py`, `__init__.py`, plus `openenv.yaml` and mirrored docker assets |
-| validation path | `openenv validate`, docker build, http health/reset probes, and `scripts/validate-submission.sh` |
+| validation path | `openenv validate`, docker build, http health/reset probes, and `scripts/validate-submission.sh` (taken direclty from meta scaler website)|
 
 ## high-level architecture
 
@@ -106,13 +191,19 @@ the repository keeps the implementation under `sysadmin_env/` and exposes a few 
 
 ```text
 .
+├── .env.example
+├── README.md
+├── messing-around-with-playbooks.md
 ├── __init__.py
 ├── client.py
+├── Dockerfile
 ├── inference.py
 ├── models.py
-├── Dockerfile
 ├── openenv.yaml
 ├── pyproject.toml
+├── requirements.txt
+├── outputs/
+│   └── output-*.txt
 ├── scripts/
 │   └── validate-submission.sh
 ├── server/
@@ -129,9 +220,12 @@ the repository keeps the implementation under `sysadmin_env/` and exposes a few 
     └── tasks/
         ├── __init__.py
         ├── disk_full.py
+        ├── hpc_outage.py
         ├── network_broken.py
         └── nginx_crash.py
 ```
+
+an additional root module `hpc_gym.py` exposes a `gymnasium.Env` wrapper named `EnterpriseHPCEnv` for hugging face trl / grpo training loops. it reuses the same `Sandbox` and `OverlayFSManager`, drives the scenario through a `pexpect` interactive bash session, and keeps the reset path on `/dev/shm`.
 
 ### core package files under `sysadmin_env/`
 
@@ -144,6 +238,7 @@ the repository keeps the implementation under `sysadmin_env/` and exposes a few 
 - `sysadmin_env/tasks/nginx_crash.py` — easy service-recovery task.
 - `sysadmin_env/tasks/disk_full.py` — medium disk-diagnosis/remediation task.
 - `sysadmin_env/tasks/network_broken.py` — hard routing-and-dns task with network isolation enabled.
+- `sysadmin_env/tasks/hpc_outage.py` — hard multi-node hpc cluster outage with a simulated slurm queue, a drained `compute-01` node, a broken `route-eth0`, and a simulated open ondemand portal on `:8080`.
 
 ### root shims and openenv-facing files
 
@@ -151,6 +246,10 @@ the repository keeps the implementation under `sysadmin_env/` and exposes a few 
 - `models.py` — thin root shim that re-exports the canonical pydantic models from `sysadmin_env.models`.
 - `__init__.py` — root package shim that re-exports `main`, `Action`, `Observation`, and `EnvironmentState`.
 - `inference.py` — the baseline agent used as the submission entrypoint declared in `openenv.yaml`.
+- `README.md` — primary repository documentation covering architecture, tasks, reward shaping, setup, validation, and the current baseline behavior.
+- `.env.example` — sample environment-variable file for local configuration.
+- `messing-around-with-playbooks.md` — change log for the recent baseline prompt and `network_broken` guardrail adjustments, including observed local run results.
+- `outputs/` — local captured baseline run logs used while tuning and validating the inference behavior.
 
 ### deployment, packaging, and validation files
 
@@ -248,6 +347,12 @@ if `task_id` is omitted, `EpisodeManager` selects the next task in round-robin r
 1. `nginx_crash`
 2. `disk_full`
 3. `network_broken`
+4. `hpc_outage`
+5. `hpc_munge`
+6. `hpc_pid_stale`
+7. `hpc_gpu_ecc`
+8. `hpc_nfs_stale`
+9. `hpc_ood_apache`
 
 ### episode boundaries
 
@@ -433,17 +538,23 @@ task modules write stub binaries into the lower filesystem, such as `nginx`, `df
 
 ## task suite
 
-there are exactly three tasks, with increasing difficulty and fixed metadata also mirrored in `openenv.yaml`.
+there are nine tasks, with increasing difficulty and fixed metadata also mirrored in `openenv.yaml`.
 
 | task | difficulty | max steps | time limit | objective |
 | --- | --- | ---: | ---: | --- |
 | `nginx_crash` | easy | 40 | 300 s | restore a broken nginx service with config and pid issues |
 | `disk_full` | medium | 55 | 420 s | identify and neutralize the hidden file exhausting `/mnt/data` |
 | `network_broken` | hard | 70 | 480 s | repair routing and dns so outbound connectivity is restored |
+| `hpc_outage` | hard | 90 | 600 s | restore a simulated 224-core hpc cluster by fixing `compute-01` routing and bringing slurmd back to idle |
+| `hpc_munge` | hard | 90 | 600 s | fix a munge authentication failure (wrong key mode) chained with a broken route |
+| `hpc_pid_stale` | hard | 90 | 600 s | clear a leftover `/var/run/slurmd.pid` so slurmd restarts after a simulated reboot |
+| `hpc_gpu_ecc` | hard | 90 | 600 s | diagnose a drained node, reset `gpu-0` via `nvidia-smi -r -i 0`, and bring the node back to idle |
+| `hpc_nfs_stale` | hard | 90 | 600 s | recover from a stale nfs handle on `/mnt/shared` with `umount -l` / `mount` before restarting slurmd |
+| `hpc_ood_apache` | hard | 90 | 600 s | repair a typo in `httpd.conf` for the open ondemand portal on `:8081` and reload apache gracefully |
 
 ### determinism guarantees across tasks
 
-all three tasks are deterministic in the current codebase:
+all nine tasks are deterministic in the current codebase:
 
 - the prepared filesystem contents are fixed
 - grader logic is pure filesystem-state inspection
@@ -618,6 +729,70 @@ notably, the grader does **not** require an actual successful `ping` command aft
 - `ping` or `curl`: `+0.06`
 - reading `resolv.conf`: `+0.05`
 
+### task 4: `hpc_outage`
+
+**what is broken**
+
+- the simulated cluster is a 224-core rocky linux hpc with two nodes: `login` and `compute-01`
+- cluster state lives in `/mnt/shared/slurm_state.json` — a shared json file read under `fcntl.LOCK_SH` and mutated under `fcntl.LOCK_EX`
+- `compute-01` is in state `drain` with `slurmd@compute-01` marked `failed`
+- `/nodes/compute-01/etc/sysconfig/network-scripts/route-eth0` ships with an invalid netmask, wrong gateway, and wrong device
+- the open ondemand portal `ood_server.py` binds `:8080` in the sandbox and returns `http 502` until the route file matches the expected contents
+- there are no real slurm daemons or nginx instances — the scenario is a state machine simulation that still behaves correctly under parallel grpo training
+
+**relevant task-local command stubs**
+
+- `ssh` — bash stub that validates the target host under `/nodes/` and execs a nested `bwrap` that rebinds `/nodes/$TARGET` as `/`, sets `HOSTNAME` and `PS1`, and drops the agent into `/bin/bash`
+- `sinfo` / `squeue` — python stubs that read `slurm_state.json` under `fcntl.LOCK_SH` and print formatted terminal tables
+- `systemctl` — python stub that mutates `slurm_state.json` under `fcntl.LOCK_EX`. `systemctl restart slurmd` on `compute-01` only transitions the node to `idle` if the route file is fixed
+- `scontrol` — minimal python stub for `scontrol show node` and `scontrol update` interactions
+- `curl` — minimal in-sandbox http client that speaks to the local ood daemon
+- `ood_server.py` — background http daemon on port `8080`. returns `200` when the route file matches the expected contents and `502` otherwise
+
+**difficulty progression**
+
+this task is hard because the agent has to reason across three layers inside a single sandbox:
+
+1. inspect cluster state through `sinfo` / `squeue`
+2. identify the failed unit via `systemctl status slurmd@compute-01` or `systemctl is-failed slurmd`
+3. `ssh compute-01` to shift root into the compute node
+4. rewrite `/etc/sysconfig/network-scripts/route-eth0` on `compute-01` with the expected `ADDRESS0` / `NETMASK0` / `GATEWAY0` / `DEVICE0` lines
+5. `systemctl restart slurmd` so the systemctl stub flips the shared json state from `drain` to `idle`
+6. validate that `curl -I http://localhost:8080` returns `200`
+
+**grader behavior**
+
+the task health is:
+
+```text
+H_hpc = 0.30 * I_route_file_restored
+      + 0.30 * I_compute_node_idle
+      + 0.40 * I_both_restored
+```
+
+where:
+
+- `I_route_file_restored = 1` iff `/nodes/compute-01/etc/sysconfig/network-scripts/route-eth0` exactly matches the expected string
+- `I_compute_node_idle = 1` iff `/mnt/shared/slurm_state.json` has `nodes.compute-01.state == "idle"`
+- `I_both_restored = 1` iff both of the above are true; in that case health is pinned to `1.0`
+
+the episode ends successfully when both indicators are `1`.
+
+**diagnostic rewards**
+
+- `sinfo` or `squeue`: `+0.06`
+- `ssh compute-01`: `+0.07`
+- reading `route-eth0` or listing `network-scripts`: `+0.05`
+- `systemctl status slurmd` or `systemctl is-failed slurmd`: `+0.05`
+- `curl ... localhost:8080`: `+0.05`
+
+**architectural notes**
+
+- resets stay well under 10 ms because `OverlayFSManager` pins `upperdir` and `workdir` to `/dev/shm`. only the merged mount point lives on disk and the lowerdir is read-only host state
+- multi-node lateral movement is simulated without `veth` pairs or `CLONE_NEWNET`. `ssh` is a nested `bwrap` that rebinds `/nodes/$TARGET` as `/` while re-binding `/mnt/shared` so the slurm state file remains coherent across nodes
+- nested sandboxing requires the primary sandbox to run with `--unshare-user` and `--cap-add CAP_SYS_ADMIN`, enabled per task via `TaskScenarioDefinition.allows_nested_sandbox`
+- evaluation is deterministic and reads only explicit filesystem state; no real daemons are spawned by the grader path
+
 ## reward and scoring system
 
 this section is based on the actual implementation in `sysadmin_env/rewards.py`, the per-task `grade()` functions, and the task summary logic in `inference.py`.
@@ -679,7 +854,7 @@ because each task health is defined on `[0, 1]`, cumulative health gain over an 
 sum_t (H_t - H_(t-1)) = H_final - H_initial
 ```
 
-all three tasks begin with `H_initial = 0.0`, so if the agent fully solves a task without catastrophic failure:
+all six tasks begin with `H_initial = 0.0`, so if the agent fully solves a task without catastrophic failure:
 
 ```text
 sum_t health_delta = 1.0
@@ -700,6 +875,12 @@ the maximum knowledge reward available per task is:
 | `nginx_crash` | `0.05 + 0.08 + 0.04 + 0.04 = 0.21` |
 | `disk_full` | `0.06 + 0.05 + 0.06 + 0.05 = 0.22` |
 | `network_broken` | `0.07 + 0.05 + 0.05 + 0.06 + 0.05 = 0.28` |
+| `hpc_outage` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
+| `hpc_munge` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
+| `hpc_pid_stale` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
+| `hpc_gpu_ecc` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
+| `hpc_nfs_stale` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
+| `hpc_ood_apache` | `0.06 + 0.07 + 0.05 + 0.05 + 0.05 = 0.28` |
 
 so the maximum raw trajectory return before step penalties is:
 
@@ -712,6 +893,7 @@ which is:
 - `1.21` for `nginx_crash`
 - `1.22` for `disk_full`
 - `1.28` for `network_broken`
+- `1.28` for `hpc_outage`, `hpc_munge`, `hpc_pid_stale`, `hpc_gpu_ecc`, `hpc_nfs_stale`, and `hpc_ood_apache`
 
 after `n` non-catastrophic steps, the raw return becomes:
 
@@ -817,7 +999,6 @@ uv sync --extra dev
 
 ```bash
 python -m pip install .
-python -m pip install pytest
 ```
 
 `requirements.txt` mirrors the runtime dependency set, but the packaging metadata lives in `pyproject.toml`.
@@ -889,30 +1070,181 @@ EPISODE_TIMEOUT_SECONDS="600"
 
 notes:
 
-- `HF_TOKEN` is the first credential name the baseline checks, followed by `OPENAI_API_KEY` and `API_KEY`.
+- `API_BASE_URL` and `MODEL_NAME` both have built-in defaults in `inference.py`.
+- `HF_TOKEN` is the required submission-facing variable name. in practical terms, the token value must match the provider behind `API_BASE_URL`: if you point at the hugging face router, use a hugging face token; if you point at another openai-compatible endpoint, use the credential that endpoint expects.
+- the script also accepts `OPENAI_API_KEY` and `API_KEY` as compatibility fallbacks for local runs, but the documented submission path should still provide `HF_TOKEN`.
 - `SYSADMIN_ENV_TASK_ID=""` means “run all tasks returned by `/tasks` in order”.
 - `API_BASE_URL` may point to any openai-compatible endpoint.
-- the script writes `[START]`, `[STEP]`, and `[END]` records to stdout and diagnostics to stderr.
+- this baseline talks to the running environment server over http/websocket, so an extra `LOCAL_IMAGE_NAME` variable is not needed here unless you rewrite the client around a `from_docker_image()` flow.
+- by default, the script writes the flat submission-oriented `[START]`, `[STEP]`, and `[END]` records to stdout and diagnostics to stderr.
+- if you need the older json payload logs for local debugging, set `SYSADMIN_ENV_LOG_FORMAT=json` before running `inference.py`.
+
+### stdout output contract
+
+the default stdout format is the flat key-value format expected by the latest submission notes:
+
+```text
+[START] task=<task_name> env=<benchmark> model=<model_name>
+[STEP] step=<n> action=<action_str> reward=<0.00> done=<true|false> error=<msg|null>
+[END] success=<true|false> steps=<n> score=<0.00> rewards=<r1,r2,...,rn>
+```
+
+details:
+
+- `score` is normalized to stay strictly inside `(0, 1)` before logging, so boundary values are not emitted in submission summaries
+- `reward` and each entry in `rewards` are formatted to exactly two decimal places
+- `done` and `success` are lowercase booleans
+- `error` is `null` when there is no step error
+- all output stays on a single line per record
+
+## baseline behavior and current observations
+
+the current baseline keeps the same high-level contract while tightening how the hard task is handled.
+
+### current baseline behavior
+
+- if `HF_TOKEN` or another supported api key is present, `inference.py` uses the openai responses api.
+- if no api key is present or the model call fails, the script falls back to the deterministic task plan described in `inference.py`.
+- for `network_broken`, the model prompt now uses a **generic** task playbook rather than embedding the exact hidden grader targets.
+- after enough route, interface, and dns diagnosis, the baseline applies a state-aware guardrail for `network_broken` so that unsupported guesses do not loop forever.
+- the guardrail emits concise stderr traces such as `network guardrail dns repair` and `network guardrail route repair`, which makes the baseline easier to debug without changing the wire protocol.
+
+### why the baseline was adjusted
+
+the earlier prompt variant made `network_broken` too easy because the model could effectively recover the exact answer from the prompt rather than infer it from the environment. the current prompt removes that leakage and keeps the hard task benchmark-oriented while still allowing a reproducible baseline run.
+
+### current observed local baseline run
+
+the latest local run against the repository server with `MODEL_NAME="gpt-5.4-nano"` produced the following episode summaries:
+
+| task | success | steps | score | notes |
+| --- | --- | ---: | ---: | --- |
+| `nginx_crash` | `true` | `6` | `1.0` | fixed config, cleared stale pid, then started nginx |
+| `disk_full` | `true` | `4` | `1.0` | diagnosed the full mount, inspected the hidden trace, then truncated it |
+| `network_broken` | `true` | `7` | `1.0` | gathered route/link/dns evidence first, then the guardrail applied dns repair followed by route repair |
+
+this is a **current observed baseline**, not a theoretical guarantee for every model provider or future model snapshot.
+
+for the full debugging narrative behind those adjustments, see `messing-around-with-playbooks.md`.
+
+## gymnasium wrapper for trl and grpo
+
+`hpc_gym.py` exposes a `gymnasium.Env` named `EnterpriseHPCEnv` that drives any registered hpc scenario through an interactive `pexpect` bash session. it is the recommended entry point for hugging face trl / grpo training loops because it keeps resets on `tmpfs` and uses a binary grader based reward that is fast to compute.
+
+key behaviors:
+
+- `reset()` prepares (or resets) the overlay stack, spawns `ood_server.py` as a background process inside the primary sandbox, and `ssh`s into the `login` node so that the first observation is already at `[root@login ...]$ `.
+- `step(action)` sends the action string to the pexpect shell, waits for the prompt regex `re.compile(r'\[\w+@[\w-]+.*\]\$ ')`, and returns the terminal output as the text observation.
+- reward is binary: `1.0` when the active task grader reports `done`, else `0.0`. the ood portal is still live on `:8080` so the agent can confirm with `curl -I` but the reward signal comes directly from the deterministic grader.
+- `terminated=True` when the grader reports done; `truncated=True` after `max_steps` without success.
+- `scenario_pool=[...]` rotates tasks per rollout for generalization. `hpc_outage`, `hpc_munge`, `hpc_pid_stale`, `hpc_gpu_ecc`, `hpc_nfs_stale`, and `hpc_ood_apache` are registered out of the box.
+
+usage sketch:
+
+```python
+from hpc_gym import EnterpriseHPCEnv
+
+env = EnterpriseHPCEnv(scenario_pool=[
+    "hpc_outage", "hpc_munge", "hpc_pid_stale",
+    "hpc_gpu_ecc", "hpc_nfs_stale", "hpc_ood_apache",
+])
+obs, info = env.reset(seed=0)
+obs, reward, terminated, truncated, info = env.step("sinfo")
+env.close()
+```
+
+optional registration under the gymnasium registry:
+
+```python
+from hpc_gym import register_env
+register_env()
+# env = gymnasium.make("EnterpriseHPC-v0")
+```
+
+## training with gemma 4 + trl grpo
+
+the `training/` package ships a full recipe that ties `EnterpriseHPC-v0` to hugging face trl `GRPOTrainer` with unsloth loaded **`google/gemma-4-e4b-it`** (4.5b effective, 128k context, apache 2). the rollout driver at `training/rollout.py` runs multi turn episodes, parses `<bash>...</bash>` actions from policy completions, and feeds observations back into the chat transcript.
+
+### local (colab, single workstation)
+
+```bash
+python -m training.train_hpc_outage --dry-run --group-size 2 --max-turns 8
+python -m training.train_hpc_outage \
+    --model google/gemma-4-e4b-it \
+    --scenarios hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache \
+    --group-size 4 --max-turns 12 --num-train-steps 100 \
+    --output-dir ./runs/hpc_grpo
+```
+
+### remote, against hosted openenv spaces
+
+this matches the shape of the trl + gemma-4 + carla example from the gemma 4 launch post: point `--env-urls` at one or more hf spaces hosting the openenv server, the rollout pool round-robins for throughput.
+
+```bash
+python -m training.hpc_openenv_gemma \
+    --env-urls https://<user>-enterprise-hpc-openenv.hf.space \
+               https://<user>-enterprise-hpc-openenv-2.hf.space \
+    --model google/gemma-4-e4b-it \
+    --group-size 4 --max-turns 12 --num-train-steps 200 \
+    --scenarios hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache
+```
+
+### managed hf jobs
+
+```bash
+python -m training.hf_jobs \
+    --env-urls https://<user>-enterprise-hpc-openenv.hf.space \
+    --gpu a10g-large \
+    --num-train-steps 300 \
+    --hub-repo <user>/hpc-grpo-runs
+```
+
+see [`docs/hf_jobs.md`](./docs/hf_jobs.md) for the full hf training guide and [`training/hpc_colab.ipynb`](./training/hpc_colab.ipynb) for a single notebook that covers both the local and remote paths.
+
+## reset latency benchmark
+
+```bash
+python -m bench.bench_reset -n 200
+# or
+make bench
+```
+
+emits a markdown row with `p50 / p95 / p99 / max ms` ready to drop into the blog or pitch deck. on a sandbox with no overlay privileges the copy fallback measures **p50 2.40 ms, p99 2.58 ms, stdev 0.07 ms** over 100 iterations. on a linux host with `fuse-overlayfs` expect sub 1 ms.
+
+## gold trajectory verifier + eval leaderboard
+
+prove the environment is deterministically solvable (no gpu, no network):
+
+```bash
+make gold
+# or
+python -m tools.verify_gold_trajectory -v
+```
+
+run a reproducible leaderboard comparing gold, random, and adversarial policies:
+
+```bash
+make eval
+# artifacts: runs/eval/leaderboard.md, eval_summary.json, eval.jsonl
+```
+
+## one-line reproduction
+
+```bash
+make help        # full list of targets
+make gold        # deterministic solvability proof
+make bench       # reset latency
+make eval        # policy leaderboard
+make dry         # training rollout smoke test, no gpu
+make train       # local grpo with gemma-4-e4b-it
+make train-remote ENV_URLS=https://<user>-enterprise-hpc-openenv.hf.space
+```
 
 ## validation flow
 
-there are three useful validation layers.
+there are two useful validation layers.
 
-### 1. python tests
-
-run the full suite:
-
-```bash
-uv run pytest -q
-```
-
-for packaging, server-contract, and scoring-focused checks, a narrower command is:
-
-```bash
-uv run pytest -q tests/test_packaginge.py tests/test_server.py tests/test_rewards.py tests/test_inferenxe.py
-```
-
-### 2. openenv manifest validation
+### 1. openenv manifest validation
 
 ```bash
 openenv validate
@@ -920,7 +1252,7 @@ openenv validate
 
 this checks the submission structure and endpoint declarations from `openenv.yaml`.
 
-### 3. end-to-end submission helper
+### 2. end-to-end submission helper
 
 the repository includes an exact pre-submission helper script:
 
@@ -1011,11 +1343,18 @@ for the fully solved case (`H_final = 1.0`):
 | `nginx_crash` | `R = 1.0 + K_nginx - 0.01n`, where `0 <= K_nginx <= 0.21` |
 | `disk_full` | `R = 1.0 + K_disk - 0.01n`, where `0 <= K_disk <= 0.22` |
 | `network_broken` | `R = 1.0 + K_net - 0.01n`, where `0 <= K_net <= 0.28` |
+| `hpc_outage` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
+| `hpc_munge` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
+| `hpc_pid_stale` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
+| `hpc_gpu_ecc` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
+| `hpc_nfs_stale` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
+| `hpc_ood_apache` | `R = 1.0 + K_hpc - 0.01n`, where `0 <= K_hpc <= 0.28` |
 
-the score reported by `inference.py` is then:
+the score reported by `inference.py` is then transformed into an open-interval submission summary value:
 
 ```text
-score = min(max(R, 0.0), 1.0)
+score_clamped = min(max(R, 0.0), 1.0)
+score_reported = 0.01 + 0.98 * score_clamped
 ```
 
 so the benchmark strongly rewards:
@@ -1055,11 +1394,12 @@ this is a deliberate portability tradeoff: the benchmark prefers “runs correct
 - the tasks are realistic but still simplified; they use stub executables rather than full linux services.
 - grading is based on explicit filesystem state rather than black-box network/service behavior.
 - the baseline `success` flag in `inference.py` is a client summary heuristic, not an authoritative server-side evaluation primitive.
-- the environment currently models exactly three tasks; expanding benchmark breadth would require additional task modules and graders.
+- the environment currently models exactly six tasks; expanding benchmark breadth would require additional task modules and graders.
 
 ## practical quickstart
 
 if you just want the shortest useful path:
+
 
 ```bash
 uv sync --extra dev
@@ -1080,3 +1420,11 @@ bash scripts/validate-submission.sh https://your-space.hf.space .
 ```
 
 that sequence exercises the main round 1 path from local development to deployment validation.
+
+<p align="center"><strong>with love :</strong></p>
+
+![hatsune-miku-miku](https://github.com/user-attachments/assets/2db5754f-20cd-4456-b636-c43197346976)
+![200w](https://github.com/user-attachments/assets/ea2e0c0c-91b9-4a49-93c2-daabea75c1d8)
+![kasane-teto-teto-kasane](https://github.com/user-attachments/assets/0520bf6e-96a2-4c17-bd04-f6c60b5cc60b)
+![teto-tetoris](https://github.com/user-attachments/assets/569f977f-6486-44e3-94ba-b8b68eb99410)
+![200](https://github.com/user-attachments/assets/05f9bcb2-7476-417b-8398-ae9cbbca3d17)

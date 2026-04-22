@@ -8,12 +8,14 @@ face spaces. pick the path that matches your situation.
 ```bash
 git clone https://github.com/<your-user>/low-taper-fade-openenv-scaler.git
 cd low-taper-fade-openenv-scaler
-conda activate metascaler || python -m venv .venv && source .venv/bin/activate
-pip install -e .
-make gold    # deterministic proof all 3 scenarios are solvable
-make bench   # reset-latency benchmark (<3 ms p50 in copy mode)
-make eval    # gold vs random vs bad policies, writes runs/eval/leaderboard.md
-make dry     # training rollout smoke test, no gpu required
+python3.13 -m venv .venv && source .venv/bin/activate
+pip install --upgrade pip setuptools wheel
+pip install -e '.[dev]'
+make gold         # deterministic proof all 6 scenarios are solvable
+make bench        # reset-latency benchmark (<3 ms p50 in copy mode)
+make eval         # gold vs random vs bad policies, writes runs/eval/leaderboard.md
+make reward-demo  # gpu-free reward-curve png, proves reward improvement
+make dry          # training rollout smoke test, no gpu required
 ```
 
 if everything passes, skip to [training paths](#training-paths).
@@ -38,11 +40,15 @@ fuse-overlayfs --version  # optional, copy fallback also works
 
 ### python
 
-- python 3.11 is the target. python 3.10 works too
-- conda env `metascaler` is pre-configured on this machine. activate it
-  with `conda activate metascaler`
-- `pip install -e .` installs the package in dev mode plus all runtime
-  deps (fastapi, uvicorn, gymnasium, pexpect, httpx, etc.)
+- python `>=3.12` is required. python `3.13` is the current unsloth
+  default (per their install docs) and the one used in `Dockerfile` +
+  `server/Dockerfile`
+- `pip install -e '.[dev]'` installs the package in dev mode plus all
+  runtime deps (fastapi, uvicorn, gymnasium, pexpect, httpx,
+  matplotlib, numpy, etc.) and pytest
+- `pip install -e '.[train]'` adds the gpu-training deps (torch,
+  transformers, trl, accelerate, peft, bitsandbytes, tensorboard,
+  datasets). only needed on the training host
 
 ## 2 sanity checks (no gpu, 15 seconds)
 
@@ -63,9 +69,9 @@ python -m eval.eval_suite --trials 2
 ## 3 run the openenv server locally
 
 ```bash
-make serve                 # uv run server on 0.0.0.0:8000
-# or equivalently
-uv run server --host 0.0.0.0 --port 8000
+make serve                 # runs the server console script on 0.0.0.0:8000
+# or equivalently (after pip install -e .)
+server --host 0.0.0.0 --port 8000
 ```
 
 smoke test in another terminal:
@@ -107,7 +113,7 @@ full guide: [`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md)
 ```bash
 python -m training.train_hpc_outage \
   --model google/gemma-4-e4b-it \
-  --scenarios hpc_outage,hpc_munge,hpc_pid_stale \
+  --scenarios hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache \
   --group-size 4 --max-turns 12 --num-train-steps 100 \
   --output-dir ./runs/hpc_grpo_local
 ```

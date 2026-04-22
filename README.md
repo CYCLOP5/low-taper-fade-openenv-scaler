@@ -157,7 +157,6 @@ the repository keeps the implementation under `sysadmin_env/` and exposes a few 
 ├── models.py
 ├── openenv.yaml
 ├── pyproject.toml
-├── requirements.txt
 ├── outputs/
 │   └── output-*.txt
 ├── scripts/
@@ -213,8 +212,7 @@ an additional root module `hpc_gym.py` exposes a `gymnasium.Env` wrapper named `
 - `server/Dockerfile` — mirrored server build asset kept alongside `server/app.py` for openenv repository structure checks.
 - `server/app.py` — asgi/cli launcher that imports `app` from `sysadmin_env.server` and exposes the `server` console script.
 - `openenv.yaml` — openenv manifest: runtime entrypoints, endpoints, resources, and task metadata.
-- `pyproject.toml` — canonical packaging metadata, dependencies, python version bounds, and the `server = "server.app:main"` console script.
-- `requirements.txt` — mirrored runtime dependency list.
+- `pyproject.toml` — canonical packaging metadata, dependencies (loose `>=` pins), python version bounds (`>=3.12`), the `server = "server.app:main"` console script, and the `[dev]` / `[train]` optional-dependency groups.
 - `scripts/validate-submission.sh` — local pre-submission validator that checks the live space, docker buildability, and `openenv validate`.
 
 ## runtime model: actions, observations, state, and episode boundaries
@@ -934,37 +932,38 @@ consequences:
 
 ## local setup
 
-the repository is designed around python `3.11` and `uv`.
+the repository targets python `>=3.12` (python `3.13` is the current unsloth default per their install docs). `pyproject.toml` is the single source of truth for dependencies — no `uv.lock`, no `requirements.txt`, no surprises. all version pins are loose `>=` so a fresh `pip install` picks up whatever is current on the colab or hf jobs runtime.
 
-### recommended setup with `uv`
-
-```bash
-uv python install 3.11
-uv sync --python 3.11 --extra dev
-```
-
-if python `3.11` is already available:
+### recommended setup with `venv + pip`
 
 ```bash
-uv sync --extra dev
+python3.13 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip setuptools wheel
+pip install -e '.[dev]'
 ```
 
-`pyproject.toml` is the canonical dependency source, and `uv.lock` pins the resolved environment used by docker builds.
-
-### alternative setup with `pip`
+### training extras (gpu needed, skip on mac)
 
 ```bash
-python -m pip install .
+pip install -e '.[train]'
+pip install 'unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git'
 ```
 
-`requirements.txt` mirrors the runtime dependency set, but the packaging metadata lives in `pyproject.toml`.
+### modern alternative with `uv` (optional)
+
+```bash
+uv venv --python 3.13
+source .venv/bin/activate
+uv pip install -e '.[dev,train]'
+```
 
 ## running the server locally
 
-the canonical launcher is the `server` console script declared in `pyproject.toml` and implemented by `server/app.py`.
+the canonical launcher is the `server` console script declared in `pyproject.toml` and implemented by `server/app.py`. after `pip install -e .` the script is on `PATH`:
 
 ```bash
-uv run server --host 0.0.0.0 --port 8000
+server --host 0.0.0.0 --port 8000
 ```
 
 useful checks:
@@ -997,7 +996,7 @@ curl http://127.0.0.1:8000/state
 the baseline agent entrypoint is `inference.py`.
 
 ```bash
-uv run python inference.py
+python inference.py
 ```
 
 it will:
@@ -1244,14 +1243,12 @@ curl http://127.0.0.1:18000/tasks
 
 both `Dockerfile` and `server/Dockerfile`:
 
-- start from `python:3.11-slim`
+- start from `python:3.13-slim`
 - install `bubblewrap`, `fuse-overlayfs`, `procps`, `iputils-ping`, `findutils`, and `curl`
-- install `uv`
-- copy `pyproject.toml` and `uv.lock`
-- run `uv sync --locked --no-dev --no-install-project`
-- copy the project files including `README.md`, root shims, `server/`, `sysadmin_env/`, and `assets/`
-- run `uv sync --locked --no-dev --no-editable`
-- start the environment with `uv run server --host 0.0.0.0 --port 8000`
+- copy `pyproject.toml`, root shims, `server/`, `sysadmin_env/`, `assets/`, `bench/`, `training/`, `eval/`, `tools/`, and `docs/`
+- run `pip install --upgrade pip setuptools wheel`
+- run `pip install .` (pulls all loose-pinned runtime deps)
+- start the environment with the `server` console script on `PATH`
 
 ### hugging face deployment
 
@@ -1358,14 +1355,15 @@ if you just want the shortest useful path:
 
 
 ```bash
-uv sync --extra dev
-uv run server --host 0.0.0.0 --port 8000
+python3.13 -m venv .venv && source .venv/bin/activate
+pip install -e '.[dev]'
+server --host 0.0.0.0 --port 8000
 ```
 
 in another shell:
 
 ```bash
-uv run python inference.py
+python inference.py
 ```
 
 before submission:
