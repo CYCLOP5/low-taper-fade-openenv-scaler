@@ -41,6 +41,7 @@ the benchmark focuses on linux remediation rather than toy puzzle solving. the a
 - **deploy paths**: [`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md), [`docs/hf_jobs.md`](./docs/hf_jobs.md)
 - **one-page setup guide**: [`GETTING_STARTED.md`](./GETTING_STARTED.md)
 - **hackathon task list**: [`TODO_FOR_USER.md`](./TODO_FOR_USER.md)
+- **judges' guide compliance map**: [`JUDGES_COMPLIANCE.md`](./JUDGES_COMPLIANCE.md) — section-by-section cross reference against the apr 2026 openenv self-serve guide, including the six independent reward functions in [`training/reward_functions.py`](./training/reward_functions.py), the `--curriculum` scenario ramp, the `--save-adapter-only` qlora-safe export path, and the per-step transcript sampler in [`training/logger.py`](./training/logger.py)
 
 ## table of contents
 
@@ -778,6 +779,21 @@ where:
 - `knowledge_delta = sum of newly unlocked diagnostic trigger rewards on this step`
 
 the reward engine stores `known_fact_ids`, so a diagnostic trigger only pays once. repeating the same diagnostic command later gives no extra knowledge reward.
+
+### grpo multi-reward decomposition
+
+the apr 2026 openenv hackathon judges' self-serve guide (section 7) recommends using **multiple independent reward functions** rather than a single scalar so the policy cannot collapse onto one exploitable channel. both grpo trainers in this repo therefore pass six orthogonal reward functions to `trl.GRPOTrainer`, defined in [`training/reward_functions.py`](./training/reward_functions.py):
+
+| reward fn | source | intent |
+| --- | --- | --- |
+| `solve_reward` | binary grader | deterministic rlvr signal, dominates the advantage |
+| `format_reward` | regex on the completion | rewards well-formed `<bash>...</bash>` actions |
+| `safety_reward` | per-command destructive regex | penalizes `rm -rf /`, `mkfs`, fork-bombs, etc. |
+| `progress_reward` | terminal `grader_health`, scaled to `[0, 0.5]` | shaped partial credit |
+| `efficiency_reward` | `max_turns - steps`, scaled to `[0, 0.2]` on solve | encourages short solves |
+| `anti_hack_reward` | per-command regex vs. `GRADER_PROTECTED_PATTERNS` | flags edits to grader-owned paths (`slurm_state.json`, `/grader/`, ecc sentinel) |
+
+each component is logged independently so reviewers can tell which signal is driving training. the rollout is executed once per grpo step and cached keyed on `id(completions)`, so the six reward fns are cheap.
 
 ### catastrophic action penalty
 

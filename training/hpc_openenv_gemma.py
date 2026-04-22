@@ -49,6 +49,26 @@ def _parse_args() -> argparse.Namespace:
         default="unsloth",
         help="model loader. unsloth (default) for colab/single gpu, transformers for vertex/hf jobs",
     )
+    parser.add_argument(
+        "--curriculum",
+        action="store_true",
+        help=(
+            "enable curriculum sampling. early grpo steps only sample the "
+            "easiest scenario bucket (hpc_pid_stale, hpc_gpu_ecc, "
+            "hpc_ood_apache) and new buckets are introduced as training "
+            "progresses. addresses the judge guide section on avoiding "
+            "zero-reward starts"
+        ),
+    )
+    parser.add_argument(
+        "--save-adapter-only",
+        action="store_true",
+        help=(
+            "save only the lora adapter weights and skip the risky "
+            "upcast-then-merge path. matches the unsloth qlora save warning "
+            "from section 16 of the judge guide"
+        ),
+    )
     return parser.parse_args()
 
 
@@ -92,11 +112,43 @@ def _env_factory(env_urls: list[str], scenarios: list[str]):
     from training.remote_env import RemoteEndpointPool
 
     pool = RemoteEndpointPool(env_urls)
+    active_scenarios = list(scenarios)
 
     def make_env():
-        return HttpEnterpriseHPCEnv(env_urls=env_urls, scenario_pool=scenarios, pool=pool)
+        return HttpEnterpriseHPCEnv(
+            env_urls=env_urls, scenario_pool=active_scenarios, pool=pool
+        )
 
-    return make_env, pool
+    def set_scenarios(new_scenarios: list[str]) -> None:
+        active_scenarios[:] = new_scenarios
+
+    return make_env, pool, set_scenarios
+
+
+# curriculum buckets ordered from lowest to highest expected difficulty. the
+# guide section 6 ("keep the task simple at first") and section 14
+# ("curriculum") both argue for this so the policy sees non-zero reward
+# quickly.
+CURRICULUM_BUCKETS: list[list[str]] = [
+    ["hpc_pid_stale", "hpc_gpu_ecc", "hpc_ood_apache"],
+    ["hpc_nfs_stale"],
+    ["hpc_outage", "hpc_munge"],
+]
+
+
+def _curriculum_scenarios(step: int, total_steps: int, full_pool: list[str]) -> list[str]:
+    if total_steps <= 0:
+        return full_pool
+    progress = min(1.0, step / max(1, total_steps))
+    # split training into three thirds; each unlocks the next bucket
+    if progress < 0.34:
+        unlocked = CURRICULUM_BUCKETS[0]
+    elif progress < 0.67:
+        unlocked = CURRICULUM_BUCKETS[0] + CURRICULUM_BUCKETS[1]
+    else:
+        unlocked = [s for bucket in CURRICULUM_BUCKETS for s in bucket]
+    filtered = [s for s in unlocked if s in full_pool]
+    return filtered or full_pool
 
 
 def _dry_run(args: argparse.Namespace) -> int:
@@ -106,7 +158,7 @@ def _dry_run(args: argparse.Namespace) -> int:
 
     scenarios = _resolve_scenarios(args.scenarios)
     rng = random.Random(args.seed)
-    make_env, pool = _env_factory(args.env_urls, scenarios)
+    make_env, pool, _set_scenarios = _env_factory(args.env_urls, scenarios)
     logger = RewardLogger(args.output_dir, run_name="dry_run", hub_repo=args.hub_repo, wandb_project=args.wandb_project)
 
     try:
@@ -210,7 +262,7 @@ def _train(args: argparse.Namespace) -> int:
     from training.rollout import summarize_group
 
     scenarios = _resolve_scenarios(args.scenarios)
-    make_env, pool = _env_factory(args.env_urls, scenarios)
+    make_env, pool, set_scenarios = _env_factory(args.env_urls, scenarios)
 
     print(f"train load model {args.model} backend {args.backend}")
     model, tokenizer, backend = _load_model_and_tokenizer(args)
@@ -257,19 +309,36 @@ def _train(args: argparse.Namespace) -> int:
     )
     step_counter = {"n": 0}
 
-    def compute_environment_reward(prompts, completions, **kwargs):
-        step_counter["n"] += 1
-        records = run_interactive_group(
-            group_size=len(completions),
+    from training.reward_functions import make_reward_functions
+
+    def _runner(group_size: int, _seed: int | None):
+        if args.curriculum:
+            set_scenarios(
+                _curriculum_scenarios(
+                    step_counter["n"], args.num_train_steps, scenarios
+                )
+            )
+        return run_interactive_group(
+            group_size=group_size,
             generate_fn=generate_fn,
             env_factory=make_env,
             max_turns=args.max_turns,
             seed_start=random.randrange(1 << 30),
         )
+
+    def _on_rollout(records, wall_seconds):
+        step_counter["n"] += 1
         summary = summarize_group(records)
         logger.log(step=step_counter["n"], records=records)
-        print(f"grpo group summary {summary}")
-        return [float(r.reward) for r in records]
+        print(
+            f"grpo group summary {summary} rollout_seconds {wall_seconds:.2f}"
+        )
+
+    reward_funcs, _cache = make_reward_functions(
+        runner=_runner,
+        max_turns=args.max_turns,
+        on_rollout=_on_rollout,
+    )
 
     training_args = GRPOConfig(
         output_dir=args.output_dir,
@@ -293,7 +362,7 @@ def _train(args: argparse.Namespace) -> int:
     trainer = GRPOTrainer(
         model=model,
         processing_class=tokenizer,
-        reward_funcs=[compute_environment_reward],
+        reward_funcs=reward_funcs,
         args=training_args,
         train_dataset=dataset,
     )
@@ -304,12 +373,33 @@ def _train(args: argparse.Namespace) -> int:
         trainer.train()
         print(f"train done elapsed {time.time() - started:.1f}s")
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-        trainer.save_model(args.output_dir)
-        tokenizer.save_pretrained(args.output_dir)
+        _save_trained_model(trainer, tokenizer, args)
     finally:
         logger.close()
         pool.close()
     return 0
+
+
+def _save_trained_model(trainer, tokenizer, args: argparse.Namespace) -> None:
+    """save the trained model. by default we only persist the lora adapter,
+    following the judge guide section 16 warning about upcasting a 4-bit
+    model to 16-bit and merging the adapter naively."""
+
+    out = Path(args.output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        model = trainer.model
+        if args.save_adapter_only and hasattr(model, "save_pretrained"):
+            adapter_dir = out / "lora_adapter"
+            model.save_pretrained(str(adapter_dir))
+            tokenizer.save_pretrained(str(adapter_dir))
+            print(f"save adapter only wrote {adapter_dir}")
+            return
+        trainer.save_model(str(out))
+        tokenizer.save_pretrained(str(out))
+        print(f"save full model wrote {out}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"save failed {type(exc).__name__} {exc}")
 
 
 def main() -> int:
