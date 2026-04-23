@@ -20,6 +20,7 @@ class CommandResult:
 
 class Sandbox:
     _HOST_RO_BINDS = [
+        "/usr/local/bin",
         "/usr/bin",
         "/usr/sbin",
         "/usr/lib",
