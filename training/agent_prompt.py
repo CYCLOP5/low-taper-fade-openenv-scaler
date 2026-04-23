@@ -45,6 +45,29 @@ typical remediation loops
   systemctl restart slurmd, exit, curl -I :8080
 4 apache ood: systemctl status httpd, cat /etc/httpd/conf/httpd.conf, apachectl configtest,
   printf '...' > /etc/httpd/conf/httpd.conf, apachectl graceful, curl -I :8081
+
+example interaction (stale pid scenario):
+
+observation: login node ready scenario hpc_pid_stale ood :8080 max_steps 90
+response:
+<bash>sinfo</bash>
+
+observation: PARTITION AVAIL TIMELIMIT NODES STATE NODELIST
+compute   up   infinite  1    drain compute-01
+response:
+<bash>ssh compute-01</bash>
+
+observation: [root@compute-01 ~]$
+response:
+<bash>ls /var/run/slurmd.pid</bash>
+
+observation: /var/run/slurmd.pid
+response:
+<bash>rm /var/run/slurmd.pid</bash>
+
+observation: [command executed no output]
+response:
+<bash>systemctl restart slurmd</bash>
 """
 
 USER_PROMPT = """incident: the cluster or its open ondemand portals are degraded. diagnose the
