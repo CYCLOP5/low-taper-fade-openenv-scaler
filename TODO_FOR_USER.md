@@ -31,7 +31,9 @@ rollout stack was rewritten. what landed on `final-round`:
   `progress_reward` consumes `best_health` / `grader_health` with a
   cumulative-reward fallback for backward compat with older servers;
   `efficiency_reward` mirrors the terminated-flag logic
-- `training/hpc_openenv_gemma.py`: default `--max-turns` bumped from 16
+- `training/hpc_openenv_gemma.py`: default `--model` now
+  `Qwen/Qwen2.5-Coder-7B-Instruct` (kaggle a100 profile); default
+  `--max-turns` bumped from 16
   → 24 (multi-step scenarios routinely take 10+ turns on a 1.5b model)
 - the hf space at `huggingmenfordays/enterprise-hpc-openenv` has been
   force-pushed with these changes
@@ -67,7 +69,7 @@ plt.savefig('reward_curve.png', dpi=150, bbox_inches='tight')
 
 1. a png of the real grpo curve (save as `docs/assets/reward_curve.png`)
 2. the final `runs/hpc_grpo_local/hpc_openenv_gemma.metrics.jsonl`
-3. optionally: push the lora adapter to `huggingface.co/<you>/hpc-grpo-gemma-4-e4b`
+3. optionally: push the lora adapter to `huggingface.co/<you>/hpc-grpo-qwen2.5-coder-7b`
 
 once those are in the repo I will update `docs/pitch.md`, `docs/hf_blog.md`,
 and `README.md` to inline the chart and link the hub artifacts.
@@ -168,10 +170,10 @@ once task 1 is done and the pipeline is validated:
 ```bash
 python -m training.hpc_openenv_gemma \
   --env-urls https://<you>-enterprise-hpc-openenv.hf.space \
-  --model google/gemma-4-e4b-it \
+  --model Qwen/Qwen2.5-Coder-7B-Instruct \
   --num-train-steps 600 \
   --group-size 8 --max-turns 16 \
-  --hub-repo <you>/hpc-grpo-gemma-4-e4b \
+  --hub-repo <you>/hpc-grpo-qwen2.5-coder-7b \
   --wandb-project hpc-grpo
 ```
 
@@ -182,19 +184,22 @@ python -m training.hpc_openenv_gemma \
 
 when you fill out the form:
 
-- **theme**: #3.1 World Modeling / Professional Tasks (primary), #2
-  Long-Horizon Planning (secondary)
+- **theme**: #3.1 World Modeling / Professional Tasks — specifically
+  the Scaler AI Labs Multi-App RL Environment for Enterprise Workflows
+  sub-theme. **single-theme submission**; do not list #2 as a secondary
+  theme on the form (long-horizon planning falls out of the env as a
+  property, not a separate theme claim)
 - **tagline**: "EnterpriseHPC-v0 — a multi-app, sub-3 ms-reset HPC SRE
-  environment. Gemma 4 learns to diagnose a 224-core Rocky Linux cluster
-  end-to-end."
+  environment. Qwen2.5-Coder-7B learns to diagnose a 224-core Rocky
+  Linux cluster end-to-end."
 - **links**: github repo, hf space, hf model repo, colab, video
 - **highlights**: multi-app (Slurm + OOD Apache + SSH + OverlayFS +
   NVIDIA driver + NFS + systemd + Munge), multi-node (nested bwrap),
-  **six deterministic scenarios** (`hpc_outage`, `hpc_munge`,
-  `hpc_pid_stale`, `hpc_gpu_ecc`, `hpc_nfs_stale`, `hpc_ood_apache`),
-  <3 ms reset, gpu-free reward-curve demo in-repo, trained with
-  TRL + Unsloth + `google/gemma-4-e4b-it`. targets the **Scaler AI Labs
-  Multi-App RL Environment for Enterprise Workflows** bonus
+  **six deterministic HPC scenarios** (`hpc_outage`, `hpc_munge`,
+  `hpc_pid_stale`, `hpc_gpu_ecc`, `hpc_nfs_stale`, `hpc_ood_apache`)
+  plus three warm-up curriculum scenarios (`nginx_crash`, `disk_full`,
+  `network_broken`), <3 ms reset, gpu-free reward-curve demo in-repo,
+  trained with TRL + Unsloth + `Qwen/Qwen2.5-Coder-7B-Instruct`.
 
 ## 7 [POLISH] things I can do as soon as you unblock
 

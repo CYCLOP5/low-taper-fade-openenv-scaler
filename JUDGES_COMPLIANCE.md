@@ -53,9 +53,13 @@ the loop is wired end-to-end in [`training/rollout.py`](./training/rollout.py):
 
 ## 3. sft vs rl
 
-we train from `google/gemma-4-e4b-it`, an instruction-tuned warm start, then
-run grpo on top. this matches the guide's "add light formatting or task
-scaffolding if needed. use rl for improvement, not as magic from scratch".
+we train from `Qwen/Qwen2.5-Coder-7B-Instruct`, a code-tuned
+instruction-tuned warm start, then run grpo on top. this matches the
+guide's "add light formatting or task scaffolding if needed. use rl for
+improvement, not as magic from scratch". the policy already emits
+well-formed shell commands so grpo does not burn samples on format
+discovery. any other text instruct model can be dropped in via
+`--model`.
 
 ## 4 & 5. design & build the environment first
 

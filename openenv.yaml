@@ -21,55 +21,72 @@ resources:
   max_runtime_minutes: 20
 
 tasks:
+  # warm-up curriculum tier (round 1 legacy): single-app remediations
+  # used as a difficulty ramp so a freshly initialized policy can
+  # accumulate non-zero reward before the multi-app hpc scenarios kick
+  # in. not the story of the round 2 submission.
   - id: nginx_crash
+    tier: warmup
     difficulty: easy
-    description: nginx crash with stale pid and config syntax error
+    description: nginx crash with stale pid and config syntax error (warm-up tier)
     max_steps: 40
     time_limit_seconds: 300
 
   - id: disk_full
+    tier: warmup
     difficulty: medium
-    description: hidden sparse log file filling a loopback mount
+    description: hidden sparse log file filling a loopback mount (warm-up tier)
     max_steps: 55
     time_limit_seconds: 420
 
   - id: network_broken
+    tier: warmup
     difficulty: hard
-    description: broken network namespace with corrupted routing tables
+    description: broken network namespace with corrupted routing tables (warm-up tier)
     max_steps: 70
     time_limit_seconds: 480
 
+  # round 2 hpc tier: multi-app enterprise incident response scenarios.
+  # this is the tier the grpo trainer samples from by default and the
+  # tier judges should score on for theme #3.1 (scaler ai labs multi-app
+  # rl environment for enterprise workflows).
   - id: hpc_outage
+    tier: hpc
     difficulty: hard
     description: multi node hpc cluster outage with drained compute and broken ood portal
     max_steps: 90
     time_limit_seconds: 600
 
   - id: hpc_munge
+    tier: hpc
     difficulty: hard
     description: compute node draining due to a munge key permission fault and broken route
     max_steps: 90
     time_limit_seconds: 600
 
   - id: hpc_pid_stale
+    tier: hpc
     difficulty: hard
     description: slurmd refuses to restart after reboot because a stale pid file is still on disk
     max_steps: 90
     time_limit_seconds: 600
 
   - id: hpc_gpu_ecc
+    tier: hpc
     difficulty: hard
     description: compute node drained because nvidia-smi reports gpu-0 uncorrectable ecc errors
     max_steps: 90
     time_limit_seconds: 600
 
   - id: hpc_nfs_stale
+    tier: hpc
     difficulty: hard
     description: compute node drained because the nfs share at /mnt/shared reports stale file handle
     max_steps: 90
     time_limit_seconds: 600
 
   - id: hpc_ood_apache
+    tier: hpc
     difficulty: medium
     description: open ondemand apache portal on :8081 returns 500 due to a one character typo in httpd.conf
     max_steps: 80

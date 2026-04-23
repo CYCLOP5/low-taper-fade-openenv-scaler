@@ -39,10 +39,10 @@ from training.rollout import RolloutRecord
 # these are relative to the sandbox overlay root; the patterns match anywhere
 # in a shell command, so simple sed/tee/printf tricks are caught.
 GRADER_PROTECTED_PATTERNS: tuple[str, ...] = (
-    r"slurm_state\.json",
+    r"(>|>>|tee\b).*slurm_state\.json",
     r"/grader(/|\s|$)",
     r"/\.judge(/|\s|$)",
-    r"ECC_RESET_SENTINEL",
+    r"(>|>>|tee\b).*ECC_RESET_SENTINEL",
 )
 
 _DESTRUCTIVE_RE = tuple(
@@ -91,7 +91,7 @@ def _touches_protected_path(command: str) -> bool:
     return any(rx.search(command) for rx in _PROTECTED_RE)
 
 
-RolloutRunner = Callable[[int, int | None], list[RolloutRecord]]
+RolloutRunner = Callable[[int, int | None, list[str] | None], list[RolloutRecord]]
 
 
 def make_reward_functions(
@@ -119,7 +119,7 @@ def make_reward_functions(
         if cache.key == batch_key and cache.records is not None:
             return cache.records
         started = time.time()
-        records = runner(len(completions), None)
+        records = runner(len(completions), None, list(completions))
         cache.key = batch_key
         cache.records = records
         cache.wall_seconds = time.time() - started
@@ -192,7 +192,7 @@ def make_reward_functions(
             for command in _extract_commands(r.transcript):
                 if _touches_protected_path(command):
                     edits += 1
-            scores.append(-0.5 * edits)
+            scores.append(-0.2 * edits)
         return scores
 
     return (

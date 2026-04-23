@@ -24,8 +24,8 @@ from tools import verify_gold_trajectory as gold
 # each action primitive is a function (root) -> None that performs a small portion
 # of a scenario fix. the demo agent samples commands by name and we materialise the
 # deterministic side effect so the grader sees meaningful partial progress without
-# needing a live sandbox. this models the reward landscape the real trl + gemma 4
-# agent navigates at each grpo step.
+# needing a live sandbox. this models the reward landscape the real trl +
+# qwen2.5-coder-7b agent navigates at each grpo step.
 
 
 @dataclass

@@ -1,15 +1,16 @@
 # pitch: EnterpriseHPC-v0
 
-target: 3 minute pitch + 2 minute q&a. theme #3.1 world modeling /
-professional tasks with the scaler ai labs bonus for multi-app enterprise
-workflows. secondary fit: theme #2 long-horizon planning.
+target: 3 minute pitch + 2 minute q&a. **single theme: #3.1 world
+modeling / professional tasks** (scaler ai labs multi-app enterprise
+workflow sub-theme). long-horizon planning falls out naturally from the
+env but is not pitched as a separate theme.
 
 ## the tagline
 
 > can a language model run an hpc cluster on its own? we built the first
 > openenv-compliant multi-node hpc sre environment and trained
-> `google/gemma-4-e4b-it` with trl grpo to restore a broken cluster end
-> to end — at two and a half millisecond reset latency.
+> `Qwen/Qwen2.5-Coder-7B-Instruct` with trl grpo to restore a broken
+> cluster end to end — at two and a half millisecond reset latency.
 
 ## minute 1 — the problem
 
@@ -68,11 +69,12 @@ bottleneck of a grpo training loop.
   reports done. for hpc_outage that means route file matches expected
   + node state flipped to idle + slurmd active; for hpc_munge it
   additionally needs munge key mode 0400 + munge@compute-01 active
-- `training/train_hpc_outage.py` runs **`google/gemma-4-e4b-it`**
-  locally via unsloth in 4-bit qlora
-- `training/hpc_openenv_gemma.py` mirrors the shape of the trl +
-  gemma-4 launch example (`carla_vlm_gemma.py`) and trains against
-  one or more hosted openenv spaces via `--env-urls`
+- `training/train_hpc_outage.py` runs **`Qwen/Qwen2.5-Coder-7B-Instruct`**
+  locally via unsloth in 4-bit qlora (kaggle a100 profile)
+- `training/hpc_openenv_gemma.py` mirrors the shape of the trl + openenv
+  launch example (`carla_vlm_gemma.py`) and trains against one or more
+  hosted openenv spaces via `--env-urls`, swapping the gemma-4 policy
+  for a code-tuned qwen2.5-coder-7b
 - `training/hf_jobs.py` ships the same pipeline as an hf jobs
   submission so judges can reproduce on hf compute
 - deterministic gold verifier (`tools/verify_gold_trajectory.py`) and
@@ -127,9 +129,11 @@ curl -I http://localhost:8080/                              # 200 OK
 
 ## q&a prep
 
-- **why gemma 4**: it is the first fully open model with 128k context,
-  apache 2 license, and native trl + openenv multimodal tool loop
-  support. and it is small enough to run inside colab at e4b.
+- **why qwen2.5-coder-7b**: it is a code-tuned, apache 2 licensed 7b
+  instruct model, fits on a kaggle a100 in 4-bit qlora, and produces
+  well-formed shell commands out of the box which keeps grpo rollouts
+  from wasting steps on format discovery. the training script still
+  accepts `--model` so judges can drop in any other text llm.
 - **why binary reward**: grpo computes advantages by comparing
   completions in a group. binary signals keep the comparison clean and
   prevent the agent from reward hacking against partial credit.

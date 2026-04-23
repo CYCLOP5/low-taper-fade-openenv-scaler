@@ -31,7 +31,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--env-urls", nargs="+", required=True)
     parser.add_argument("--repo-url", default="https://huggingface.co/spaces/your-user/enterprise-hpc-openenv")
-    parser.add_argument("--model", default="google/gemma-4-e4b-it")
+    parser.add_argument("--model", default="Qwen/Qwen2.5-Coder-7B-Instruct")
     parser.add_argument("--group-size", type=int, default=4)
     parser.add_argument("--max-turns", type=int, default=16)
     parser.add_argument("--num-train-steps", type=int, default=300)

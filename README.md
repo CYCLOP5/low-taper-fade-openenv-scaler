@@ -33,8 +33,8 @@ the benchmark focuses on linux remediation rather than toy puzzle solving. the a
 - **reset latency bench**: [`bench/bench_reset.py`](./bench/bench_reset.py) — **p50 2.40 ms** in copy fallback, sub 1 ms on fuse-overlayfs hosts
 - **gold trajectory verifier**: [`tools/verify_gold_trajectory.py`](./tools/verify_gold_trajectory.py) proves every scenario is deterministically solvable
 - **eval / leaderboard**: [`eval/eval_suite.py`](./eval/eval_suite.py) — gold vs random vs bad policies, writes markdown leaderboard
-- **local grpo training**: [`training/train_hpc_outage.py`](./training/train_hpc_outage.py) with unsloth + **`google/gemma-4-e4b-it`** + trl `GRPOTrainer`
-- **remote openenv grpo training**: [`training/hpc_openenv_gemma.py`](./training/hpc_openenv_gemma.py) using `--env-urls` pointing to hosted hf spaces, same shape as the trl + gemma-4 + carla launch example
+- **local grpo training**: [`training/train_hpc_outage.py`](./training/train_hpc_outage.py) with unsloth + **`Qwen/Qwen2.5-Coder-7B-Instruct`** + trl `GRPOTrainer`
+- **remote openenv grpo training**: [`training/hpc_openenv_gemma.py`](./training/hpc_openenv_gemma.py) using `--env-urls` pointing to hosted hf spaces, same shape as the trl + openenv + carla launch example, with a code-tuned qwen2.5-coder-7b policy by default
 - **hf jobs submitter**: [`training/hf_jobs.py`](./training/hf_jobs.py) ships the training run as a managed hf job
 - **metric logger**: [`training/logger.py`](./training/logger.py) writes `runs/<name>.metrics.jsonl` plus optional wandb + hf hub uploads
 - **colab notebook**: [`training/hpc_colab.ipynb`](./training/hpc_colab.ipynb) runs the full pipeline on a single gpu, covers local and remote paths
@@ -69,20 +69,22 @@ the benchmark focuses on linux remediation rather than toy puzzle solving. the a
 
 ## round 2 theme alignment
 
-this repository targets the following judging theme coverage:
+**single theme: #3.1 — world modeling / professional tasks**, scoped to the **scaler ai labs multi-app rl environment for enterprise workflows** sub-theme.
 
-- **primary theme #3.1 — world modeling / professional tasks**: the env is a partially observable rocky linux hpc cluster (mock slurm, munge, systemd, nvidia gpu, nfs, apache open ondemand). the agent must interact with real-looking tools, maintain state between steps, and cannot shortcut to the grader. the reward only goes up when system state actually changes.
-- **bonus sub-theme — scaler ai labs multi-app rl environment for enterprise workflows**: each scenario exercises multiple "apps" at once. `hpc_ood_apache` touches httpd + systemd + the ood portal; `hpc_gpu_ecc` touches slurm + nvidia driver + systemd; `hpc_nfs_stale` touches nfs + slurm + systemd. these are the exact multi-app enterprise remediations on-call sre teams do every week.
-- **secondary theme #2 — long-horizon planning & instruction following**: the agent must decompose each incident into diagnosis, repair, verify, and stop. gold trajectories are 8 – 14 steps long and reward shaping is sparse enough to reward genuine multi-step planning.
+this repository is a partially observable rocky linux hpc cluster (mock slurm, munge, systemd, nvidia gpu, nfs, apache open ondemand) that an agent must remediate one shell command at a time. it is the exact multi-app enterprise sre surface the sub-theme calls for: `hpc_ood_apache` touches httpd + systemd + the ood portal; `hpc_gpu_ecc` touches slurm + nvidia driver + systemd; `hpc_nfs_stale` touches nfs + slurm + systemd. the grader reads real filesystem + service state, so the reward only goes up when the world actually changes.
+
+long-horizon planning and instruction following fall out of the environment as properties (gold trajectories are 8 – 14 steps, reward is sparse by default) rather than being pitched as a separate theme claim.
+
+the **warm-up curriculum tier** — `nginx_crash`, `disk_full`, `network_broken` — is retained from round 1 as a difficulty ramp so a freshly initialized policy can accumulate non-zero reward before the multi-app hpc scenarios kick in, per self-serve guide §6 and §14. they are not the submission's story; the six hpc scenarios are.
 
 the full judging rubric is addressed by the repository layout as follows:
 
 | rubric axis | weight | where we deliver |
 | --- | ---: | --- |
-| environment innovation | 40% | nine deterministic tasks, three of them brand new multi-app hpc incidents (`hpc_gpu_ecc`, `hpc_nfs_stale`, `hpc_ood_apache`), bubblewrap + overlayfs isolation with sub-10 ms resets, binary + shaped reward dual-head |
+| environment innovation | 40% | six deterministic multi-app hpc incidents (`hpc_outage`, `hpc_munge`, `hpc_pid_stale`, `hpc_gpu_ecc`, `hpc_nfs_stale`, `hpc_ood_apache`) plus three warm-up curriculum tasks, bubblewrap + overlayfs isolation with sub-10 ms resets, binary + shaped reward dual-head |
 | storytelling | 30% | pitch, hf blog draft, video script under `docs/`, live tmux demo via `make eval` and `make reward-demo`, clean before / after leaderboards |
-| showing improvement in rewards | 20% | `tools/reward_curve_demo.py` writes a curriculum-annealed reward curve png + jsonl in under a minute, no gpu required. real grpo curves come from the colab notebook |
-| reward + training pipeline | 10% | `sysadmin_env/rewards.py` shaped rewards + trl `GRPOTrainer` with unsloth + gemma 4 + openenv client, see `training/hpc_openenv_gemma.py` |
+| showing improvement in rewards | 20% | `tools/reward_curve_demo.py` writes a curriculum-annealed reward curve png + jsonl in under a minute, no gpu required. real grpo curves come from the colab / kaggle notebook |
+| reward + training pipeline | 10% | `sysadmin_env/rewards.py` shaped rewards + trl `GRPOTrainer` with unsloth + `Qwen/Qwen2.5-Coder-7B-Instruct` + openenv client, see `training/hpc_openenv_gemma.py` |
 
 ## why linux remediation is a meaningful benchmark
 
@@ -517,19 +519,33 @@ task modules write stub binaries into the lower filesystem, such as `nginx`, `df
 
 ## task suite
 
-there are nine tasks, with increasing difficulty and fixed metadata also mirrored in `openenv.yaml`.
+the environment ships nine deterministic tasks split into two tiers. the
+**round 2 hpc tier** (six tasks, tagged `hpc_*`) is the submission's
+story and the tier the trainer samples from by default. the **warm-up
+curriculum tier** (three tasks retained from round 1) is a difficulty
+ramp so a freshly initialized policy can accumulate non-zero reward
+before the multi-app hpc scenarios kick in, per the self-serve guide's
+§6 and §14 advice on avoiding zero-reward stalls. fixed metadata is
+also mirrored in `openenv.yaml`.
+
+**round 2 hpc tier (primary story)**
 
 | task | difficulty | max steps | time limit | objective |
 | --- | --- | ---: | ---: | --- |
-| `nginx_crash` | easy | 40 | 300 s | restore a broken nginx service with config and pid issues |
-| `disk_full` | medium | 55 | 420 s | identify and neutralize the hidden file exhausting `/mnt/data` |
-| `network_broken` | hard | 70 | 480 s | repair routing and dns so outbound connectivity is restored |
 | `hpc_outage` | hard | 90 | 600 s | restore a simulated 224-core hpc cluster by fixing `compute-01` routing and bringing slurmd back to idle |
 | `hpc_munge` | hard | 90 | 600 s | fix a munge authentication failure (wrong key mode) chained with a broken route |
 | `hpc_pid_stale` | hard | 90 | 600 s | clear a leftover `/var/run/slurmd.pid` so slurmd restarts after a simulated reboot |
 | `hpc_gpu_ecc` | hard | 90 | 600 s | diagnose a drained node, reset `gpu-0` via `nvidia-smi -r -i 0`, and bring the node back to idle |
 | `hpc_nfs_stale` | hard | 90 | 600 s | recover from a stale nfs handle on `/mnt/shared` with `umount -l` / `mount` before restarting slurmd |
 | `hpc_ood_apache` | hard | 90 | 600 s | repair a typo in `httpd.conf` for the open ondemand portal on `:8081` and reload apache gracefully |
+
+**warm-up curriculum tier (round 1 legacy, used for difficulty ramping)**
+
+| task | difficulty | max steps | time limit | objective |
+| --- | --- | ---: | ---: | --- |
+| `nginx_crash` | easy | 40 | 300 s | restore a broken nginx service with config and pid issues |
+| `disk_full` | medium | 55 | 420 s | identify and neutralize the hidden file exhausting `/mnt/data` |
+| `network_broken` | hard | 70 | 480 s | repair routing and dns so outbound connectivity is restored |
 
 ### determinism guarantees across tasks
 
@@ -1166,29 +1182,38 @@ register_env()
 # env = gymnasium.make("EnterpriseHPC-v0")
 ```
 
-## training with gemma 4 + trl grpo
+## training with qwen2.5-coder-7b + trl grpo
 
-the `training/` package ships a full recipe that ties `EnterpriseHPC-v0` to hugging face trl `GRPOTrainer` with unsloth loaded **`google/gemma-4-e4b-it`** (4.5b effective, 128k context, apache 2). the rollout driver at `training/rollout.py` runs multi turn episodes, parses `<bash>...</bash>` actions from policy completions, and feeds observations back into the chat transcript.
+the `training/` package ships a full recipe that ties `EnterpriseHPC-v0` to hugging face trl `GRPOTrainer` with unsloth loaded **`Qwen/Qwen2.5-Coder-7B-Instruct`** (7b, 32k context, apache 2, code-tuned). the rollout driver at `training/rollout.py` runs multi turn episodes, parses `<bash>...</bash>` actions from policy completions, and feeds observations back into the chat transcript. any other text instruct llm can be dropped in via `--model`.
 
-### local (colab, single workstation)
+### local (colab, single workstation, kaggle a100)
 
 ```bash
 python -m training.train_hpc_outage --dry-run --group-size 2 --max-turns 8
 python -m training.train_hpc_outage \
-    --model google/gemma-4-e4b-it \
+    --model Qwen/Qwen2.5-Coder-7B-Instruct \
     --scenarios hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache \
     --group-size 4 --max-turns 12 --num-train-steps 100 \
     --output-dir ./runs/hpc_grpo
 ```
 
+on a kaggle p100 / t4 drop to `--model Qwen/Qwen2.5-Coder-3B-Instruct`
+and `--group-size 2`. on an a100 the 7b fits fine with 4-bit qlora.
+
 ### remote, against hosted openenv spaces
 
-this matches the shape of the trl + gemma-4 + carla example from the gemma 4 launch post: point `--env-urls` at one or more hf spaces hosting the openenv server, the rollout pool round-robins for throughput.
+this matches the shape of the trl + openenv launch example
+(`examples/scripts/openenv/carla_vlm_gemma.py`): point `--env-urls` at
+one or more hf spaces hosting the openenv server, the rollout pool
+round-robins for throughput. we swap the launch example's gemma-4
+policy for a code-tuned qwen2.5-coder-7b which emits well-formed shell
+commands out of the box and keeps grpo from burning samples on format
+discovery.
 
 ```bash
 python -m training.hpc_openenv_gemma \
     --env-urls https://huggingmenfordays-enterprise-hpc-openenv.hf.space \
-    --model google/gemma-4-e4b-it \
+    --model Qwen/Qwen2.5-Coder-7B-Instruct \
     --group-size 4 --max-turns 24 --num-train-steps 200 \
     --curriculum --save-adapter-only \
     --scenarios hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache
@@ -1249,7 +1274,7 @@ make gold        # deterministic solvability proof
 make bench       # reset latency
 make eval        # policy leaderboard
 make dry         # training rollout smoke test, no gpu
-make train       # local grpo with gemma-4-e4b-it
+make train       # local grpo with qwen2.5-coder-7b (override with MODEL=...)
 make train-remote ENV_URLS=https://<user>-enterprise-hpc-openenv.hf.space
 ```
 

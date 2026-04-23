@@ -36,15 +36,15 @@ round robins across them automatically.
 
 ## 2. run the training from any machine against the hosted env
 
-this mirrors the trl+gemma-4+openenv example from the gemma 4 launch post
-(`examples/scripts/openenv/carla_vlm_gemma.py`). identical shape, different
-env:
+this mirrors the trl+openenv launch example
+(`examples/scripts/openenv/carla_vlm_gemma.py`). identical shape, swapped
+from gemma-4 to a code-tuned qwen policy:
 
 ```bash
 python -m training.hpc_openenv_gemma \
     --env-urls https://<user>-enterprise-hpc-openenv.hf.space \
                https://<user>-enterprise-hpc-openenv-2.hf.space \
-    --model google/gemma-4-e4b-it \
+    --model Qwen/Qwen2.5-Coder-7B-Instruct \
     --group-size 4 --max-turns 12 --num-train-steps 200 \
     --scenarios hpc_outage,hpc_munge,hpc_pid_stale \
     --hub-repo <user>/hpc-grpo-runs \
@@ -78,7 +78,7 @@ and a gpu attached, set the startup command to
 ```
 python -m training.hpc_openenv_gemma \
   --env-urls ${ENV_URLS} \
-  --model google/gemma-4-e4b-it \
+  --model Qwen/Qwen2.5-Coder-7B-Instruct \
   --num-train-steps ${NUM_STEPS:-200}
 ```
 

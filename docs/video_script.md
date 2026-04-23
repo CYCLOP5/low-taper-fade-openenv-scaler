@@ -32,7 +32,7 @@ p50 2.40 ms. right pane `tree nodes/` showing login and compute-01.
 
 ## shot D, 0:55–1:25, the agent loop
 
-> "google gemma four e four b it, trained with trl grpo on a single
+> "qwen two point five coder seven b instruct, trained with trl grpo on a single
 > gpu. the reward is binary. the grader reads explicit filesystem
 > state. no reward hacking. watch the trained agent take the
 > remediation path end to end."

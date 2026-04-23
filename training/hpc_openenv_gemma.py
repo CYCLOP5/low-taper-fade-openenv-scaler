@@ -59,9 +59,16 @@ def _parse_args() -> argparse.Namespace:
         required=True,
         help="one or more openenv sysadmin server base urls. hosted hf spaces work directly",
     )
-    parser.add_argument("--model", default=os.environ.get("HPC_MODEL", "google/gemma-4-e4b-it"))
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("HPC_MODEL", "Qwen/Qwen2.5-Coder-7B-Instruct"),
+        help=(
+            "hf hub id. defaults to Qwen/Qwen2.5-Coder-7B-Instruct (the kaggle a100 profile). "
+            "use Qwen/Qwen2.5-Coder-3B-Instruct for t4 colab"
+        ),
+    )
     parser.add_argument("--output-dir", default="./runs/hpc_openenv_gemma")
-    parser.add_argument("--group-size", type=int, default=4)
+    parser.add_argument("--group-size", type=int, default=8)
     # bumped from 16: scenarios like hpc_pid_stale / hpc_nfs_stale routinely
     # take 10+ turns to even surface a useful observation, and a small
     # instruct model spends several turns getting the format right. with
@@ -73,7 +80,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float, default=2e-5)
     parser.add_argument("--lora-r", type=int, default=16)
     parser.add_argument("--lora-alpha", type=int, default=32)
-    parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--max-new-tokens", type=int, default=384)
     parser.add_argument("--seed", type=int, default=7)
@@ -290,9 +297,10 @@ def _load_model_and_tokenizer(args: argparse.Namespace):
         bias="none",
         task_type="CAUSAL_LM",
     )
-    # Gemma4 / other multimodal models wrap vision-encoder linears in a non-standard
-    # class (Gemma4ClippableLinear) that older PEFT can't inject into.  Exclude the
-    # vision tower and projector so LoRA only targets the text decoder.
+    # multimodal models (eg Gemma4) wrap vision-encoder linears in non-standard
+    # classes (Gemma4ClippableLinear) that older PEFT can't inject into. Qwen2.5-Coder
+    # is text-only so this branch is a no-op for it, but we keep the guard so the
+    # script still works when pointed at a vision model like gemma-4-e4b-it.
     _vision_substrings = ("vision_tower", "multi_modal_projector", "image_newline", "patch_embedding")
     _has_vision = any(
         any(s in name for s in _vision_substrings) for name, _ in model.named_modules()
@@ -385,7 +393,7 @@ def _train(args: argparse.Namespace) -> int:
 
     from training.reward_functions import make_reward_functions
 
-    def _runner(group_size: int, _seed: int | None):
+    def _runner(group_size: int, _seed: int | None, completions: list[str] | None = None):
         if args.curriculum:
             set_scenarios(
                 _curriculum_scenarios(
@@ -398,6 +406,7 @@ def _train(args: argparse.Namespace) -> int:
             env_factory=make_env,
             max_turns=args.max_turns,
             seed_start=random.randrange(1 << 30),
+            initial_completions=completions,
         )
 
     def _on_rollout(records, wall_seconds):

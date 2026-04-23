@@ -85,6 +85,7 @@ def run_interactive_group(
     env_factory: Callable[[], EnterpriseHPCEnv],
     max_turns: int,
     seed_start: int = 0,
+    initial_completions: list[str] | None = None,
 ) -> list[RolloutRecord]:
     envs: list[EnterpriseHPCEnv] = []
     transcripts: list[list[dict[str, str]]] = []
@@ -118,12 +119,15 @@ def run_interactive_group(
         done.append(False)
 
     try:
-        for _ in range(max_turns):
+        for turn in range(max_turns):
             active = [i for i in range(group_size) if not done[i]]
             if not active:
                 break
-            batch = [transcripts[i] for i in active]
-            completions = generate_fn(batch)
+            if turn == 0 and initial_completions is not None:
+                completions = [initial_completions[i] for i in active]
+            else:
+                batch = [transcripts[i] for i in active]
+                completions = generate_fn(batch)
             if len(completions) != len(active):
                 raise RuntimeError(
                     f"generate_fn returned {len(completions)} completions expected {len(active)}"

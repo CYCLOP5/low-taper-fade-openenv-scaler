@@ -36,18 +36,22 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--model",
-        default=os.environ.get("HPC_MODEL", "google/gemma-4-e4b-it"),
-        help="hf hub id. defaults to google/gemma-4-e4b-it. swap to google/gemma-4-e2b-it for t4 colab",
+        default=os.environ.get("HPC_MODEL", "Qwen/Qwen2.5-Coder-7B-Instruct"),
+        help=(
+            "hf hub id. defaults to Qwen/Qwen2.5-Coder-7B-Instruct. "
+            "swap to Qwen/Qwen2.5-Coder-3B-Instruct for t4 colab, or "
+            "unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit for pre-quantized"
+        ),
     )
     parser.add_argument("--output-dir", default="./runs/hpc_grpo")
-    parser.add_argument("--group-size", type=int, default=4, help="grpo num_generations")
+    parser.add_argument("--group-size", type=int, default=8, help="grpo num_generations")
     parser.add_argument("--max-turns", type=int, default=16, help="max interaction turns per rollout")
     parser.add_argument("--max-seq-length", type=int, default=4096)
     parser.add_argument("--num-train-steps", type=int, default=200)
     parser.add_argument("--learning-rate", type=float, default=2e-5)
     parser.add_argument("--lora-r", type=int, default=16)
     parser.add_argument("--lora-alpha", type=int, default=32)
-    parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--top-p", type=float, default=0.95)
     parser.add_argument("--max-new-tokens", type=int, default=384, help="per turn generation cap")
     parser.add_argument("--seed", type=int, default=7)
@@ -262,7 +266,7 @@ def _train(args: argparse.Namespace) -> int:
         wandb_project=args.wandb_project,
     )
 
-    def _runner(group_size: int, _seed: int | None):
+    def _runner(group_size: int, _seed: int | None, completions: list[str] | None = None):
         if args.curriculum:
             active_pool[:] = _curriculum_scenarios(
                 step_counter["n"], args.num_train_steps, scenarios
@@ -273,6 +277,7 @@ def _train(args: argparse.Namespace) -> int:
             env_factory=env_factory,
             max_turns=args.max_turns,
             seed_start=random.randrange(1 << 30),
+            initial_completions=completions,
         )
 
     def _on_rollout(records, wall_seconds):

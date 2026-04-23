@@ -3,7 +3,7 @@
 tl;dr we shipped an openenv compliant gymnasium environment that
 simulates a 224 core rocky linux hpc cluster inside a single user
 namespace sandbox, resets in **2.40 ms p50**, and trains
-**google/gemma-4-e4b-it** with trl grpo to recover a broken cluster
+**Qwen/Qwen2.5-Coder-7B-Instruct** with trl grpo to recover a broken cluster
 end to end. the same training script can run locally, in colab, or
 against a fleet of hf spaces via `--env-urls`.
 
@@ -53,26 +53,26 @@ that is in the ci friendly copy mode. real fuse-overlayfs on a linux
 host drops well under 1 ms. reset latency is no longer the grpo
 bottleneck.
 
-## training with gemma 4
+## training with qwen2.5-coder
 
 local training with unsloth + 4bit qlora:
 
 ```
 python -m training.train_hpc_outage \
-  --model google/gemma-4-e4b-it \
+  --model Qwen/Qwen2.5-Coder-7B-Instruct \
   --group-size 4 --max-turns 12 \
   --num-train-steps 100 \
   --scenarios hpc_outage,hpc_munge,hpc_pid_stale
 ```
 
 remote training against hosted openenv spaces (same shape as the
-trl + gemma-4 + carla example from the launch post):
+trl + openenv launch example, swapped to a code-tuned 7b policy):
 
 ```
 python -m training.hpc_openenv_gemma \
   --env-urls https://<user>-enterprise-hpc-openenv.hf.space \
              https://<user>-enterprise-hpc-openenv-2.hf.space \
-  --model google/gemma-4-e4b-it \
+  --model Qwen/Qwen2.5-Coder-7B-Instruct \
   --group-size 4 --max-turns 12 --num-train-steps 200
 ```
 

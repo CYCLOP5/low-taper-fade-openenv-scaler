@@ -101,6 +101,7 @@ class EnterpriseHPCEnv(gym.Env):
         self._last_reward = 0.0
         self._ood_started = False
         self._rng = random.Random()
+        self._prev_health = 0.0
 
     @property
     def sandbox(self) -> Sandbox | None:
@@ -158,6 +159,7 @@ class EnterpriseHPCEnv(gym.Env):
         self._max_steps = definition.metadata.max_steps
         self._step_count = 0
         self._last_reward = 0.0
+        self._prev_health = 0.0
         self._ood_started = False
 
         self._spawn_shell()
@@ -190,7 +192,9 @@ class EnterpriseHPCEnv(gym.Env):
         output = self._await_prompt(self._step_timeout)
 
         grade = self._scenario.grade(self._sandbox.state_root or Path("."))
-        reward = 1.0 if grade.done else 0.0
+        health_delta = grade.health - self._prev_health
+        self._prev_health = grade.health
+        reward = health_delta
         self._last_reward = reward
         terminated = grade.done
         truncated = not terminated and self._step_count >= self._max_steps

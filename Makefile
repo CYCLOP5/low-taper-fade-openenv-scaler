@@ -1,5 +1,5 @@
 PYTHON ?= python
-MODEL ?= google/gemma-4-e4b-it
+MODEL ?= Qwen/Qwen2.5-Coder-7B-Instruct
 GROUP_SIZE ?= 4
 MAX_TURNS ?= 12
 NUM_STEPS ?= 100
@@ -19,7 +19,7 @@ help:
 	@echo "  make demo          gold trajectory run with transcripts printed"
 	@echo "  make dry           local dry-run training rollout (no gpu)"
 	@echo "  make dry-remote    dry-run against a hosted openenv space (set ENV_URLS=...)"
-	@echo "  make train         full grpo training locally with gemma-4-e4b-it"
+	@echo "  make train         full grpo training locally with qwen2.5-coder-7b"
 	@echo "  make train-remote  full grpo training against ENV_URLS (hf spaces)"
 	@echo "  make serve         run the openenv server on :8000"
 	@echo "  make reward-demo   gpu-free curriculum reward curve png (no bwrap required)"

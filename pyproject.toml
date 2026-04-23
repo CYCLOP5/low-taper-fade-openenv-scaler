@@ -19,7 +19,7 @@ keywords = [
     "sre",
     "slurm",
     "grpo",
-    "gemma",
+    "qwen",
     "trl",
 ]
 classifiers = [

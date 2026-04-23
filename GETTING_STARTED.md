@@ -144,7 +144,7 @@ full guide: [`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md)
 
 ```bash
 python -m training.train_hpc_outage \
-  --model google/gemma-4-e4b-it \
+  --model Qwen/Qwen2.5-Coder-7B-Instruct \
   --scenarios hpc_outage,hpc_munge,hpc_pid_stale,hpc_gpu_ecc,hpc_nfs_stale,hpc_ood_apache \
   --group-size 4 --max-turns 12 --num-train-steps 100 \
   --output-dir ./runs/hpc_grpo_local
@@ -160,7 +160,7 @@ l4 / a100 can push `--group-size 4+`.
 python -m training.hpc_openenv_gemma \
   --env-urls https://<user>-enterprise-hpc-openenv.hf.space \
              https://<user>-enterprise-hpc-openenv-2.hf.space \
-  --model google/gemma-4-e4b-it \
+  --model Qwen/Qwen2.5-Coder-7B-Instruct \
   --group-size 4 --max-turns 24 --num-train-steps 200 \
   --curriculum --save-adapter-only
 ```
@@ -211,7 +211,7 @@ tensorboard --logdir ./runs
 | `ModuleNotFoundError: gymnasium` / `pexpect` | `pip install -e .` again, or `pip install gymnasium pexpect httpx` |
 | HF Space deploy: build fails on `fuse-overlayfs` install | ignore — Spaces have apparmor restrictions, the copy fallback still works |
 | `huggingface_hub.run_uv` missing | upgrade: `pip install -U huggingface_hub`. otherwise `--dry-run-local` prints the shell script |
-| training OOM on T4 | lower `--group-size 2 --max-new-tokens 256`, or switch to `google/gemma-4-e2b-it` |
+| training OOM on T4 | lower `--group-size 2 --max-new-tokens 256`, or switch to `Qwen/Qwen2.5-Coder-3B-Instruct` / `unsloth/Qwen2.5-Coder-7B-Instruct-bnb-4bit` |
 | "no pty devices" when running training locally in a container | run on a linux host directly, or in colab |
 
 ## 8 one-line reproduction for judges
