@@ -9,6 +9,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bubblewrap \
+    proot \
     fuse-overlayfs \
     procps \
     iputils-ping \

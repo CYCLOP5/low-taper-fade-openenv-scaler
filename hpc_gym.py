@@ -261,7 +261,7 @@ class EnterpriseHPCEnv(gym.Env):
         if self._sandbox is None:
             raise RuntimeError("sandbox must be created before shell spawn")
 
-        bwrap_cmd = self._sandbox._build_bwrap_command(
+        runtime_cmd = self._sandbox._build_runtime_command(
             "exec /bin/bash --noprofile --norc -i"
         )
         env = {
@@ -272,10 +272,10 @@ class EnterpriseHPCEnv(gym.Env):
             "PS1": f"[root@{PRIMARY_HOSTNAME} \\W]\\$ ",
             "LANG": "C.UTF-8",
         }
-        print(f"hpc_gym spawning pexpect bwrap {bwrap_cmd[0]}")
+        print(f"hpc_gym spawning pexpect runtime {runtime_cmd[0]}")
         self._shell = pexpect.spawn(
-            bwrap_cmd[0],
-            bwrap_cmd[1:],
+            runtime_cmd[0],
+            runtime_cmd[1:],
             timeout=self._shell_timeout,
             encoding="utf-8",
             codec_errors="replace",

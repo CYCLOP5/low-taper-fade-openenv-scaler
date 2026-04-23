@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import json
+import os
+import shutil
+import subprocess
 from collections import OrderedDict
 from dataclasses import dataclass
 from dataclasses import field
@@ -33,6 +36,51 @@ from sysadmin_env.sandbox import CommandResult
 from sysadmin_env.sandbox import Sandbox
 from sysadmin_env.tasks import TASK_MODULES
 from sysadmin_env.tasks import build_task_registry
+
+
+def _collect_runtime_diagnostics() -> dict[str, Any]:
+    bwrap_path = shutil.which("bwrap")
+    proot_path = shutil.which("proot")
+    configured_backend = os.environ.get("OPENENV_SANDBOX_BACKEND", "auto").strip().lower() or "auto"
+    bwrap_probe = {"ok": False, "error": "bwrap binary not found"}
+
+    if bwrap_path is not None:
+        probe_cmd = [
+            bwrap_path,
+            "--ro-bind",
+            "/",
+            "/",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--unshare-pid",
+            "--",
+            "/bin/true",
+        ]
+        try:
+            result = subprocess.run(
+                probe_cmd,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                bwrap_probe = {"ok": True, "error": ""}
+            else:
+                bwrap_probe = {
+                    "ok": False,
+                    "error": (result.stderr or result.stdout or f"exit {result.returncode}").strip(),
+                }
+        except Exception as exc:
+            bwrap_probe = {"ok": False, "error": str(exc)}
+
+    return {
+        "configured_backend": configured_backend,
+        "bwrap_path": bwrap_path,
+        "proot_path": proot_path,
+        "bwrap_probe": bwrap_probe,
+    }
 
 
 @dataclass
@@ -219,6 +267,7 @@ def create_app() -> FastAPI:
     app = FastAPI(lifespan=lifespan)
     app.state.episode_manager = manager
     app.state.http_session_store = HttpSessionStore()
+    app.state.runtime_diagnostics = _collect_runtime_diagnostics()
 
     async def reset_episode(payload: ResetRequest | None = None) -> StepResult:
         manager: EpisodeManager = app.state.episode_manager
@@ -283,7 +332,21 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health() -> JSONResponse:
-        return JSONResponse({"status": "ok"})
+        store: HttpSessionStore = app.state.http_session_store
+        active_backends = sorted(
+            {
+                slot.episode.sandbox.runtime_backend
+                for slot in store.all_slots()
+                if slot.episode is not None and slot.episode.sandbox is not None
+            }
+        )
+        payload = {
+            "status": "ok",
+            "runtime": app.state.runtime_diagnostics,
+            "active_episode_count": len(store.all_slots()),
+            "active_backends": active_backends,
+        }
+        return JSONResponse(payload)
 
     @app.post("/reset", response_model=StepResult)
     async def reset(payload: ResetRequest | None = None) -> StepResult:

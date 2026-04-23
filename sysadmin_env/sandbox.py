@@ -1,4 +1,5 @@
 import asyncio
+import os
 import shutil
 import subprocess
 import time
@@ -49,6 +50,7 @@ class Sandbox:
         self._created = False
         self._destroyed = False
         self._can_mount_proc = False
+        self._runtime_backend = "bwrap"
 
     @property
     def is_created(self) -> bool:
@@ -69,6 +71,10 @@ class Sandbox:
     @property
     def state_root(self) -> Path | None:
         return self._overlay.merged
+
+    @property
+    def runtime_backend(self) -> str:
+        return self._runtime_backend
 
     def create(self) -> None:
         if self._created:
@@ -91,6 +97,7 @@ class Sandbox:
         print("sandbox runtime layout start")
         self._ensure_runtime_layout()
         print("sandbox runtime layout complete")
+        self._select_runtime_backend()
         self._created = True
         print("sandbox created")
 
@@ -112,6 +119,56 @@ class Sandbox:
         except Exception:
             self._can_mount_proc = False
         print(f"sandbox proc mount {'supported' if self._can_mount_proc else 'unavailable, using ro-bind fallback'}")
+
+    def _select_runtime_backend(self) -> None:
+        preferred = os.environ.get("OPENENV_SANDBOX_BACKEND", "auto").strip().lower()
+        bwrap_ok, bwrap_error = self._probe_bwrap_runtime()
+        proot_path = shutil.which("proot")
+
+        if preferred == "bwrap":
+            if not bwrap_ok:
+                raise RuntimeError(f"forced bwrap backend is unavailable: {bwrap_error}")
+            self._runtime_backend = "bwrap"
+            print("sandbox runtime backend bwrap")
+            return
+
+        if preferred == "proot":
+            if proot_path is None:
+                raise RuntimeError("forced proot backend requested but proot binary not found in path")
+            self._runtime_backend = "proot"
+            print("sandbox runtime backend proot")
+            return
+
+        if bwrap_ok:
+            self._runtime_backend = "bwrap"
+            print("sandbox runtime backend bwrap")
+            return
+
+        if proot_path is None:
+            raise RuntimeError(f"bwrap unavailable ({bwrap_error}) and proot binary not found")
+        self._runtime_backend = "proot"
+        print(f"sandbox runtime backend proot fallback reason {bwrap_error}")
+
+    def _probe_bwrap_runtime(self) -> tuple[bool, str]:
+        if self._overlay.merged is None:
+            return False, "overlay stack not ready"
+        probe_command = self._build_bwrap_command("true")
+        try:
+            result = subprocess.run(
+                probe_command,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=self._command_env(),
+            )
+        except Exception as exc:
+            return False, str(exc)
+
+        if result.returncode == 0:
+            return True, ""
+
+        message = (result.stderr or result.stdout or f"exit {result.returncode}").strip()
+        return False, message
 
     def _ensure_runtime_layout(self) -> None:
         if self._overlay.merged is None:
@@ -209,6 +266,51 @@ class Sandbox:
 
         return cmd
 
+    def _build_proot_command(self, command: str) -> list[str]:
+        if self._overlay.merged is None:
+            raise RuntimeError("sandbox storage not ready")
+
+        merged = str(self._overlay.merged)
+        cmd = [
+            "proot",
+            "-R",
+            merged,
+            "-b",
+            "/proc:/proc",
+            "-b",
+            "/dev:/dev",
+            "-b",
+            "/tmp:/tmp",
+        ]
+
+        for host_path in self._HOST_RO_BINDS:
+            if Path(host_path).exists():
+                cmd.extend(["-b", f"{host_path}:{host_path}"])
+
+        cmd.extend([
+            "-w",
+            "/",
+            "--",
+            "/bin/sh",
+            "-c",
+            command,
+        ])
+        return cmd
+
+    def _build_runtime_command(self, command: str) -> list[str]:
+        if self._runtime_backend == "proot":
+            return self._build_proot_command(command)
+        return self._build_bwrap_command(command)
+
+    def _command_env(self) -> dict[str, str]:
+        return {
+            "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "HOME": "/root",
+            "TERM": "xterm",
+            "HOSTNAME": "sandbox",
+            "LANG": "C.UTF-8",
+        }
+
     def execute(self, command: str, *, timeout: float | None = None) -> CommandResult:
         if not self._created:
             raise RuntimeError("sandbox not created call create first")
@@ -216,17 +318,18 @@ class Sandbox:
             raise RuntimeError("sandbox has been destroyed")
 
         effective_timeout = timeout if timeout is not None else self._timeout
-        bwrap_cmd = self._build_bwrap_command(command)
+        runtime_cmd = self._build_runtime_command(command)
 
         result = CommandResult()
         start = time.perf_counter()
 
         try:
             proc = subprocess.run(
-                bwrap_cmd,
+                runtime_cmd,
                 capture_output=True,
                 text=True,
                 timeout=effective_timeout,
+                env=self._command_env(),
             )
             result.stdout = proc.stdout
             result.stderr = proc.stderr
@@ -247,16 +350,17 @@ class Sandbox:
             raise RuntimeError("sandbox has been destroyed")
 
         effective_timeout = timeout if timeout is not None else self._timeout
-        bwrap_cmd = self._build_bwrap_command(command)
+        runtime_cmd = self._build_runtime_command(command)
 
         result = CommandResult()
         start = time.perf_counter()
 
         try:
             proc = await asyncio.create_subprocess_exec(
-                *bwrap_cmd,
+                *runtime_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=self._command_env(),
             )
             try:
                 stdout_bytes, stderr_bytes = await asyncio.wait_for(

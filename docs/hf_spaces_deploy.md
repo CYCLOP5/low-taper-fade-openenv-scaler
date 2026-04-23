@@ -97,12 +97,16 @@ CMD ["sh", "-c", "server --host 0.0.0.0 --port ${PORT:-7860}"]
 
 ## 4 user namespaces on spaces
 
-hugging face spaces containers run as an unprivileged user. bwrap with
-`--unshare-user` works out of the box. fuse-overlayfs does not. the
-`OverlayFSManager` already handles this: kernel overlay is tried
-first, fuse-overlayfs second, and a copy fallback last. expect the
-copy fallback on spaces, which benches at ~3 ms reset latency, still
-well within the sub 10 ms budget.
+spaces kernel policy can change over time. if `bwrap` starts failing
+with `Creating new namespace failed: Operation not permitted`, set the
+runtime to auto (default) and keep `proot` installed in the image.
+`Sandbox` now probes `bwrap` at startup and automatically falls back to
+`proot` when namespace creation is denied.
+
+filesystem layering still follows the same chain in `OverlayFSManager`:
+kernel overlay first, `fuse-overlayfs` second, copy fallback last.
+expect copy fallback on spaces, which still benches within the reset
+latency budget for this environment.
 
 ## 5 smoke test from your laptop
 
