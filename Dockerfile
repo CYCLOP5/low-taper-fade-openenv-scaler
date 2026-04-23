@@ -18,6 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+# python slim images often install the interpreter under /usr/local/bin only.
+# task stubs use `#!/usr/bin/env python3`, so expose a stable /usr/bin/python3.
+RUN set -eux; \
+    if [ -x /usr/local/bin/python3 ] && [ ! -e /usr/bin/python3 ]; then \
+      ln -sf /usr/local/bin/python3 /usr/bin/python3; \
+    fi
+
 COPY pyproject.toml README.md ./
 COPY __init__.py client.py inference.py models.py hpc_gym.py openenv.yaml ./
 COPY server ./server
