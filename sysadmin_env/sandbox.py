@@ -290,7 +290,6 @@ class Sandbox:
         cmd.extend([
             "-w",
             "/",
-            "--",
             "/bin/sh",
             "-c",
             command,
