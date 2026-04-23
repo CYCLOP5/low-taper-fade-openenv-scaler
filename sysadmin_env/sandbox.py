@@ -48,6 +48,7 @@ class Sandbox:
         self._allow_nested_sandbox = allow_nested_sandbox
         self._created = False
         self._destroyed = False
+        self._can_mount_proc = False
 
     @property
     def is_created(self) -> bool:
@@ -98,6 +99,19 @@ class Sandbox:
         if bwrap_bin is None:
             raise FileNotFoundError("bwrap binary not found in path")
         print(f"sandbox bwrap found {bwrap_bin}")
+        self._probe_proc_capability()
+
+    def _probe_proc_capability(self) -> None:
+        try:
+            result = subprocess.run(
+                ["bwrap", "--ro-bind", "/", "/", "--proc", "/proc",
+                 "--dev", "/dev", "--unshare-pid", "--", "/bin/true"],
+                capture_output=True, timeout=5,
+            )
+            self._can_mount_proc = result.returncode == 0
+        except Exception:
+            self._can_mount_proc = False
+        print(f"sandbox proc mount {'supported' if self._can_mount_proc else 'unavailable, using ro-bind fallback'}")
 
     def _ensure_runtime_layout(self) -> None:
         if self._overlay.merged is None:
@@ -140,13 +154,16 @@ class Sandbox:
             "--bind",
             merged,
             "/",
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
+        ]
+
+        if self._can_mount_proc:
+            cmd.extend(["--proc", "/proc", "--dev", "/dev", "--unshare-pid"])
+        else:
+            cmd.extend(["--ro-bind", "/proc", "/proc", "--dev-bind", "/dev", "/dev"])
+
+        cmd.extend([
             "--tmpfs",
             "/tmp",
-            "--unshare-pid",
             "--unshare-uts",
             "--unshare-cgroup-try",
             "--die-with-parent",
@@ -166,14 +183,11 @@ class Sandbox:
             "0",
             "--gid",
             "0",
-        ]
+        ])
 
         if self._allow_nested_sandbox:
-            cmd.extend([
-                "--unshare-user",
-                "--cap-add",
-                "CAP_SYS_ADMIN",
-            ])
+            if self._can_mount_proc:
+                cmd.extend(["--unshare-user", "--cap-add", "CAP_SYS_ADMIN"])
         else:
             cmd.extend(["--cap-drop", "ALL"])
 
