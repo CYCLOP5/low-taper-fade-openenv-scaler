@@ -288,11 +288,11 @@ class Sandbox:
                 cmd.extend(["-b", f"{host_path}:{host_path}"])
 
         # Keep task-provided /usr/local/bin tools (sinfo, squeue, etc.) visible,
-        # but ensure python3 is still reachable for /usr/bin/env shebang scripts.
-        for candidate in ("/usr/bin/python3", "/usr/local/bin/python3", "/usr/bin/python"):
-            if Path(candidate).exists():
-                cmd.extend(["-b", f"{candidate}:/usr/bin/python3"])
-                break
+        # and inject only the Python runtime bits needed by /usr/bin/env python3.
+        if Path("/usr/local/bin/python3").exists():
+            cmd.extend(["-b", "/usr/local/bin/python3:/usr/local/bin/python3"])
+        if Path("/usr/local/lib").exists():
+            cmd.extend(["-b", "/usr/local/lib:/usr/local/lib"])
 
         cmd.extend([
             "-w",
