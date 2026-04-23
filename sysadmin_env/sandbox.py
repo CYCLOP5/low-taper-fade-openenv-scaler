@@ -20,7 +20,6 @@ class CommandResult:
 
 class Sandbox:
     _HOST_RO_BINDS = [
-        "/usr/local/bin",
         "/usr/bin",
         "/usr/sbin",
         "/usr/lib",
@@ -287,6 +286,13 @@ class Sandbox:
         for host_path in self._HOST_RO_BINDS:
             if Path(host_path).exists():
                 cmd.extend(["-b", f"{host_path}:{host_path}"])
+
+        # Keep task-provided /usr/local/bin tools (sinfo, squeue, etc.) visible,
+        # but ensure python3 is still reachable for /usr/bin/env shebang scripts.
+        for candidate in ("/usr/bin/python3", "/usr/local/bin/python3", "/usr/bin/python"):
+            if Path(candidate).exists():
+                cmd.extend(["-b", f"{candidate}:/usr/bin/python3"])
+                break
 
         cmd.extend([
             "-w",
