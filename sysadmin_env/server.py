@@ -14,7 +14,9 @@ from threading import Lock
 from typing import Any
 from uuid import uuid4
 
+from fastapi import Depends
 from fastapi import FastAPI
+from fastapi import Header
 from fastapi import HTTPException
 from fastapi import WebSocket
 from fastapi import WebSocketDisconnect
@@ -253,6 +255,17 @@ def create_app() -> FastAPI:
     manager = EpisodeManager(base_dir=Path.cwd() / "assets")
     web_metadata_payload = _build_web_metadata()
 
+    # Optional bearer-token guard.  Set OPENENV_API_KEY in the Space secrets to
+    # require authentication on all mutation endpoints.  When the variable is
+    # absent or empty every request is allowed through (backward-compatible).
+    _api_key: str = os.environ.get("OPENENV_API_KEY", "").strip()
+
+    async def _require_api_key(authorization: str | None = Header(default=None)) -> None:
+        if not _api_key:
+            return
+        if authorization != f"Bearer {_api_key}":
+            raise HTTPException(status_code=401, detail="invalid or missing api key")
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.episode_manager = manager
@@ -349,11 +362,11 @@ def create_app() -> FastAPI:
         return JSONResponse(payload)
 
     @app.post("/reset", response_model=StepResult)
-    async def reset(payload: ResetRequest | None = None) -> StepResult:
+    async def reset(payload: ResetRequest | None = None, _: None = Depends(_require_api_key)) -> StepResult:
         return await reset_episode(payload)
 
     @app.post("/step", response_model=StepResult)
-    async def step(payload: StepRequest) -> StepResult:
+    async def step(payload: StepRequest, _: None = Depends(_require_api_key)) -> StepResult:
         return await step_episode(payload)
 
     @app.get("/state", response_model=EnvironmentState)
@@ -374,12 +387,12 @@ def create_app() -> FastAPI:
         return JSONResponse(web_metadata_payload)
 
     @app.post("/web/reset")
-    async def web_reset(payload: ResetRequest | None = None) -> JSONResponse:
+    async def web_reset(payload: ResetRequest | None = None, _: None = Depends(_require_api_key)) -> JSONResponse:
         result = await reset_episode(payload)
         return JSONResponse(_build_web_step_result(result))
 
     @app.post("/web/step")
-    async def web_step(payload: dict[str, Any]) -> JSONResponse:
+    async def web_step(payload: dict[str, Any], _: None = Depends(_require_api_key)) -> JSONResponse:
         result = await step_episode(_parse_web_step_request(payload))
         return JSONResponse(_build_web_step_result(result))
 
@@ -396,6 +409,12 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:
+        if _api_key:
+            provided = websocket.query_params.get("token", "")
+            if provided != _api_key:
+                await websocket.close(code=4401)
+                return
+
         await websocket.accept()
         manager: EpisodeManager = app.state.episode_manager
         episode: EpisodeState | None = None

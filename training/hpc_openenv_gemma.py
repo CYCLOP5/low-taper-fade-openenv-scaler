@@ -60,6 +60,11 @@ def _parse_args() -> argparse.Namespace:
         help="one or more openenv sysadmin server base urls. hosted hf spaces work directly",
     )
     parser.add_argument(
+        "--env-api-key",
+        default=os.environ.get("OPENENV_API_KEY", ""),
+        help="bearer token required by the sysadmin-env server (set OPENENV_API_KEY env var or pass directly)",
+    )
+    parser.add_argument(
         "--model",
         default=os.environ.get("HPC_MODEL", "Qwen/Qwen2.5-Coder-7B-Instruct"),
         help=(
@@ -162,11 +167,11 @@ def _random_policy(rng: random.Random):
     return generate
 
 
-def _env_factory(env_urls: list[str], scenarios: list[str]):
+def _env_factory(env_urls: list[str], scenarios: list[str], api_key: str | None = None):
     from training.remote_env import HttpEnterpriseHPCEnv
     from training.remote_env import RemoteEndpointPool
 
-    pool = RemoteEndpointPool(env_urls)
+    pool = RemoteEndpointPool(env_urls, api_key=api_key or None)
     active_scenarios = list(scenarios)
 
     def make_env():
@@ -213,7 +218,7 @@ def _dry_run(args: argparse.Namespace) -> int:
 
     scenarios = _resolve_scenarios(args.scenarios)
     rng = random.Random(args.seed)
-    make_env, pool, _set_scenarios = _env_factory(args.env_urls, scenarios)
+    make_env, pool, _set_scenarios = _env_factory(args.env_urls, scenarios, api_key=args.env_api_key or None)
     logger = RewardLogger(args.output_dir, run_name="dry_run", hub_repo=args.hub_repo, wandb_project=args.wandb_project)
 
     try:
@@ -344,7 +349,7 @@ def _train(args: argparse.Namespace) -> int:
     from training.rollout import summarize_group
 
     scenarios = _resolve_scenarios(args.scenarios)
-    make_env, pool, set_scenarios = _env_factory(args.env_urls, scenarios)
+    make_env, pool, set_scenarios = _env_factory(args.env_urls, scenarios, api_key=args.env_api_key or None)
 
     print(f"train load model {args.model} backend {args.backend}")
     model, tokenizer, backend = _load_model_and_tokenizer(args)

@@ -39,6 +39,7 @@ class AgentConfig:
     api_timeout: float
     episode_timeout: float
     task_id: str | None
+    env_api_key: str | None = None
 
 
 @dataclass
@@ -70,6 +71,7 @@ def load_config() -> AgentConfig:
         api_timeout=_parse_float_env("MODEL_API_TIMEOUT_SECONDS", DEFAULT_API_TIMEOUT),
         episode_timeout=_parse_float_env("EPISODE_TIMEOUT_SECONDS", DEFAULT_EPISODE_TIMEOUT),
         task_id=os.getenv("SYSADMIN_ENV_TASK_ID"),
+        env_api_key=_read_optional_env("OPENENV_API_KEY"),
     )
 
 
@@ -162,7 +164,7 @@ async def run() -> int:
 
 
 async def verify_server(config: AgentConfig) -> None:
-    async with httpx.AsyncClient(timeout=config.api_timeout) as client:
+    async with httpx.AsyncClient(timeout=config.api_timeout, headers=_env_auth_headers(config)) as client:
         response = await client.get(config.healthcheck_url)
         response.raise_for_status()
 
@@ -171,7 +173,7 @@ async def load_task_sequence(config: AgentConfig) -> list[str]:
     if config.task_id:
         return [config.task_id]
 
-    async with httpx.AsyncClient(timeout=config.api_timeout) as client:
+    async with httpx.AsyncClient(timeout=config.api_timeout, headers=_env_auth_headers(config)) as client:
         response = await client.get(config.tasks_url)
         response.raise_for_status()
         payload = response.json()
@@ -235,7 +237,16 @@ async def run_episode(config: AgentConfig, task_id: str) -> EpisodeSummary:
 
 def _build_websocket_url(config: AgentConfig, task_id: str) -> str:
     separator = "&" if "?" in config.server_url else "?"
-    return f"{config.server_url}{separator}task_id={task_id}"
+    url = f"{config.server_url}{separator}task_id={task_id}"
+    if config.env_api_key:
+        url = f"{url}&token={config.env_api_key}"
+    return url
+
+
+def _env_auth_headers(config: AgentConfig) -> dict[str, str]:
+    if config.env_api_key:
+        return {"Authorization": f"Bearer {config.env_api_key}"}
+    return {}
 
 
 async def choose_action(

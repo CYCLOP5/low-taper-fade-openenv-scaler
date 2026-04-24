@@ -40,6 +40,7 @@ class RemoteEndpointPool:
         timeout: float = 60.0,
         retries: int = 3,
         backoff_seconds: float = 1.5,
+        api_key: str | None = None,
     ) -> None:
         cleaned = [u.rstrip("/") for u in env_urls if u.strip()]
         if not cleaned:
@@ -47,7 +48,8 @@ class RemoteEndpointPool:
         self._urls = cleaned
         self._cycle = itertools.cycle(self._urls)
         self._lock = threading.Lock()
-        self._client = httpx.Client(timeout=timeout, http2=False)
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self._client = httpx.Client(timeout=timeout, http2=False, headers=headers)
         self._retries = retries
         self._backoff = backoff_seconds
 
@@ -87,6 +89,7 @@ class HttpEnterpriseHPCEnv(gym.Env):
         scenario_pool: list[str] | None = None,
         pool: RemoteEndpointPool | None = None,
         timeout: float = 60.0,
+        api_key: str | None = None,
     ) -> None:
         super().__init__()
         self.action_space = spaces.Text(max_length=4096)
@@ -96,7 +99,7 @@ class HttpEnterpriseHPCEnv(gym.Env):
         if pool is None:
             if isinstance(env_urls, str):
                 env_urls = [env_urls]
-            pool = RemoteEndpointPool(env_urls, timeout=timeout)
+            pool = RemoteEndpointPool(env_urls, timeout=timeout, api_key=api_key)
         self._pool = pool
         self._owns_pool = not _external_pool
         self._scenario = scenario
