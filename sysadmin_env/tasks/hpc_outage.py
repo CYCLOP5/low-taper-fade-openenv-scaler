@@ -298,9 +298,34 @@ if [ ! -d "/nodes/$CLEAN_TARGET" ]; then
     exit 255
 fi
 
-BWRAP_BIN="$(command -v bwrap || echo /usr/bin/bwrap)"
-if [ ! -x "$BWRAP_BIN" ]; then
-    echo "ssh: nested sandbox runtime bwrap is unavailable" >&2
+BWRAP_BIN="$(command -v bwrap 2>/dev/null || echo /usr/bin/bwrap)"
+_bwrap_ok=0
+if [ -x "$BWRAP_BIN" ]; then
+    "$BWRAP_BIN" --ro-bind / / -- /bin/true 2>/dev/null && _bwrap_ok=1
+fi
+if [ "$_bwrap_ok" = "0" ]; then
+    # bwrap absent or unable to create namespaces – fall back to proot
+    PROOT_BIN="$(command -v proot 2>/dev/null)"
+    if [ -x "$PROOT_BIN" ]; then
+        PROOT_ARGS=(-R "/nodes/$CLEAN_TARGET"
+            -b /mnt/shared:/mnt/shared
+            -b /proc:/proc
+            -b /dev:/dev
+            -b /tmp:/tmp
+            -w /root)
+        # Bind host shell and libs so bash/python are available in the compute node
+        for _hdir in /bin /usr/bin /usr/sbin /sbin /lib /lib64 /usr/lib /usr/lib64 /usr/share /etc/alternatives /etc/ld.so.cache; do
+            [ -e "$_hdir" ] && PROOT_ARGS+=(-b "$_hdir:$_hdir")
+        done
+        [ -x /usr/local/bin/python3 ] && PROOT_ARGS+=(-b /usr/local/bin/python3:/usr/local/bin/python3)
+        [ -d /usr/local/lib ] && PROOT_ARGS+=(-b /usr/local/lib:/usr/local/lib)
+        export HOSTNAME="$CLEAN_TARGET"
+        if [ ${#REMOTE_CMD[@]} -eq 0 ]; then
+            exec "$PROOT_BIN" "${PROOT_ARGS[@]}" /bin/bash --login
+        fi
+        exec "$PROOT_BIN" "${PROOT_ARGS[@]}" /bin/bash -lc "${REMOTE_CMD[*]}"
+    fi
+    echo "ssh: nested sandbox unavailable (bwrap and proot both absent)" >&2
     exit 255
 fi
 
@@ -543,12 +568,19 @@ def handle_restart(unit, host):
         print(f"{unit} restarted")
         return 0
 
-    if host != "compute-01":
+    # If the unit explicitly names @compute-01 (e.g. "systemctl restart
+    # slurmd@compute-01" from the login node), honour that target regardless
+    # of the current hostname so the fix works without a nested ssh session.
+    unit_no_svc = unit.split(".")[0]
+    explicit_target = unit_no_svc.split("@", 1)[1] if "@" in unit_no_svc else None
+    effective_host = explicit_target if explicit_target else host
+
+    if effective_host != "compute-01":
         def remote_restart(doc):
             services = doc.setdefault("services", {})
-            services[f"slurmd@{host or 'unknown'}"] = "active"
+            services[f"slurmd@{effective_host or 'unknown'}"] = "active"
         mutate_state(remote_restart)
-        print(f"{unit} restarted on {host or 'unknown'}")
+        print(f"{unit} restarted on {effective_host or 'unknown'}")
         return 0
 
     fixed = route_is_fixed()

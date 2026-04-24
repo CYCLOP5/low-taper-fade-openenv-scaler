@@ -385,12 +385,16 @@ def handle_restart(unit, host):
         print(f"{unit} restarted")
         return 0
 
-    if host != "compute-01":
+    unit_no_svc = unit.split(".")[0]
+    explicit_target = unit_no_svc.split("@", 1)[1] if "@" in unit_no_svc else None
+    effective_host = explicit_target if explicit_target else host
+
+    if effective_host != "compute-01":
         def remote_restart(doc):
             services = doc.setdefault("services", {})
-            services[f"slurmd@{host or 'unknown'}"] = "active"
+            services[f"slurmd@{effective_host or 'unknown'}"] = "active"
         mutate_state(remote_restart)
-        print(f"{unit} restarted on {host or 'unknown'}")
+        print(f"{unit} restarted on {effective_host or 'unknown'}")
         return 0
 
     fresh = mount_is_fresh()

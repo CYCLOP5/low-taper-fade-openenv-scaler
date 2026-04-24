@@ -294,6 +294,18 @@ class Sandbox:
         if Path("/usr/local/lib").exists():
             cmd.extend(["-b", "/usr/local/lib:/usr/local/lib"])
 
+        # proot -R mirrors the host's /run (tmpfs) and /etc/resolv.conf into the
+        # sandbox, which shadows task-specific files.  Explicitly bind the
+        # task's copies so that writes (e.g. nginx.running) persist in the
+        # overlay and the grader can read them back.
+        run_in_merged = Path(merged) / "run"
+        if run_in_merged.is_dir():
+            cmd.extend(["-b", f"{run_in_merged}:/run"])
+
+        resolv_in_merged = Path(merged) / "etc" / "resolv.conf"
+        if resolv_in_merged.exists():
+            cmd.extend(["-b", f"{resolv_in_merged}:/etc/resolv.conf"])
+
         cmd.extend([
             "-w",
             "/",

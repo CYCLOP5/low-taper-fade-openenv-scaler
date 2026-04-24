@@ -239,7 +239,9 @@ import os
 import sys
 
 STATE_PATH = "/mnt/shared/slurm_state.json"
-CONF_PATH = "/etc/httpd/conf/httpd.conf"
+# The httpd.conf lives under the login-node subtree so it is visible from
+# the login sandbox root as /nodes/login/etc/httpd/conf/httpd.conf.
+CONF_PATH = "/nodes/login/etc/httpd/conf/httpd.conf"
 FIXED_CONF = (
     "ServerName hpc-login\\n"
     "Listen 8081\\n"
