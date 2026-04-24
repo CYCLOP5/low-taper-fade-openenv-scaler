@@ -20,7 +20,7 @@ help:
 	@echo "  make dry           local dry-run training rollout (no gpu)"
 	@echo "  make dry-remote    dry-run against a hosted openenv space (set ENV_URLS=...)"
 	@echo "  make train         full grpo training locally with qwen2.5-coder-7b"
-	@echo "  make train-remote  full grpo training against ENV_URLS (hf spaces)"
+	@echo "  make train-remote  full grpo training against ENV_URLS (modal/any hosted server)"
 	@echo "  make serve         run the openenv server on :8000"
 	@echo "  make reward-demo   gpu-free curriculum reward curve png (no bwrap required)"
 	@echo "  make clean         remove runs/ caches"
@@ -63,9 +63,10 @@ train:
 	  --output-dir $(RUN_DIR)
 
 train-remote:
-	@test -n "$(ENV_URLS)" || (echo "set ENV_URLS=https://... to target a hosted space" && exit 1)
+	@test -n "$(ENV_URLS)" || (echo "set ENV_URLS=https://theboisalbum--sysadmin-env-serve.modal.run" && exit 1)
 	$(PYTHON) -m training.hpc_openenv_gemma \
 	  --env-urls $(ENV_URLS) --model $(MODEL) \
+	  $(if $(ENV_API_KEY),--env-api-key $(ENV_API_KEY),) \
 	  --group-size $(GROUP_SIZE) --max-turns $(MAX_TURNS) \
 	  --num-train-steps $(NUM_STEPS) --scenarios $(SCENARIOS) \
 	  --output-dir $(RUN_DIR)

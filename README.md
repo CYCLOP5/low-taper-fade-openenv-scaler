@@ -1,13 +1,3 @@
----
-title: sysadmin env
-colorFrom: blue
-colorTo: green
-sdk: docker
-app_port: 8000
-tags:
-  - openenv
----
-
 # sysadmin-env
 
 `sysadmin-env` is an openenv-style benchmark environment for openenv round 1: an agent connects to a live linux-like runtime, inspects a broken machine, issues one shell command at a time, receives stepwise observations and shaped rewards, and is judged on whether it restores the service safely and efficiently.
@@ -25,8 +15,8 @@ the benchmark focuses on linux remediation rather than toy puzzle solving. the a
 
 ## round 2 artifacts at a glance
 
-- **live hf space**: [`huggingmenfordays/enterprise-hpc-openenv`](https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv) — public url `https://huggingmenfordays-enterprise-hpc-openenv.hf.space`, docker build with bwrap + overlayfs copy fallback, `/health`, `/reset`, `/step`, `/state`, `/tasks`, `/ws` all wired
-- **multi-session http server (apr 23 2026)**: [`sysadmin_env/server.py`](./sysadmin_env/server.py) now runs an lru-bounded `HttpSessionStore` keyed on a uuid `episode_id`, so `group_size > 1` remote rollouts against a single space no longer clobber each other. `Observation` in [`sysadmin_env/models.py`](./sysadmin_env/models.py) now carries `grader_health`, `grader_details`, and `ood_http_code`; `StepRequest` carries an optional `episode_id` forwarded by [`training/remote_env.py`](./training/remote_env.py)
+- **live modal deployment**: `https://theboisalbum--sysadmin-env-serve.modal.run` — serverless python on Modal Labs with proot sandbox fallback (bwrap is unavailable on most managed runtimes; proot fills in transparently), all nine endpoints wired, `min_containers=1` keeps cold-start latency negligible, protected by an optional `Authorization: Bearer wowowow` header (`OPENENV_API_KEY` env var)
+- **multi-session http server (apr 23 2026)**: [`sysadmin_env/server.py`](./sysadmin_env/server.py) now runs an lru-bounded `HttpSessionStore` keyed on a uuid `episode_id`, so `group_size > 1` remote rollouts against a single endpoint no longer clobber each other. `Observation` in [`sysadmin_env/models.py`](./sysadmin_env/models.py) now carries `grader_health`, `grader_details`, and `ood_http_code`; `StepRequest` carries an optional `episode_id` forwarded by [`training/remote_env.py`](./training/remote_env.py)
 - **gymnasium env wrapper**: [`hpc_gym.py`](./hpc_gym.py) exposing `EnterpriseHPC-v0` with a pluggable scenario pool
 - **six hpc incident scenarios**: [`hpc_outage`](./sysadmin_env/tasks/hpc_outage.py), [`hpc_munge`](./sysadmin_env/tasks/hpc_munge.py), [`hpc_pid_stale`](./sysadmin_env/tasks/hpc_pid_stale.py), [`hpc_gpu_ecc`](./sysadmin_env/tasks/hpc_gpu_ecc.py), [`hpc_nfs_stale`](./sysadmin_env/tasks/hpc_nfs_stale.py), [`hpc_ood_apache`](./sysadmin_env/tasks/hpc_ood_apache.py) — route, auth, post-reboot pid, gpu ecc reset, stale nfs handle, and open ondemand apache config typo fault classes, rotated per rollout for generalization. this explicitly targets the **scaler ai labs multi-app rl environment for enterprise workflows** sub-theme: slurm control plane, munge auth, systemd service manager, nvidia gpu driver, nfs share, and httpd portal are six distinct apps the agent has to orchestrate inside one incident
 - **gpu-free reward curve demo**: [`tools/reward_curve_demo.py`](./tools/reward_curve_demo.py) replays a curriculum-annealed policy against the real grader and writes [`docs/assets/reward_curve_demo.png`](./docs/assets/reward_curve_demo.png) + `runs/reward_demo/reward_curve.jsonl` — observable evidence of reward improvement without a gpu, runs in under a minute on mac
@@ -34,10 +24,10 @@ the benchmark focuses on linux remediation rather than toy puzzle solving. the a
 - **gold trajectory verifier**: [`tools/verify_gold_trajectory.py`](./tools/verify_gold_trajectory.py) proves every scenario is deterministically solvable
 - **eval / leaderboard**: [`eval/eval_suite.py`](./eval/eval_suite.py) — gold vs random vs bad policies, writes markdown leaderboard
 - **local grpo training**: [`training/train_hpc_outage.py`](./training/train_hpc_outage.py) with unsloth + **`Qwen/Qwen2.5-Coder-7B-Instruct`** + trl `GRPOTrainer`
-- **remote openenv grpo training**: [`training/hpc_openenv_gemma.py`](./training/hpc_openenv_gemma.py) using `--env-urls` pointing to hosted hf spaces, same shape as the trl + openenv + carla launch example, with a code-tuned qwen2.5-coder-7b policy by default
+- **remote openenv grpo training**: [`training/hpc_openenv_gemma.py`](./training/hpc_openenv_gemma.py) using `--env-urls` pointing to the Modal deployment (or any other hosted server), same shape as the trl + openenv + carla launch example, with a code-tuned qwen2.5-coder-7b policy by default; pass `--env-api-key $OPENENV_API_KEY` to authenticate
 - **hf jobs submitter**: [`training/hf_jobs.py`](./training/hf_jobs.py) ships the training run as a managed hf job
 - **metric logger**: [`training/logger.py`](./training/logger.py) writes `runs/<name>.metrics.jsonl` plus optional wandb + hf hub uploads
-- **colab notebook**: [`training/hpc_colab.ipynb`](./training/hpc_colab.ipynb) runs the full pipeline on a single gpu, covers local and remote paths
+- **colab / kaggle notebook**: [`training/hpc_colab.ipynb`](./training/hpc_colab.ipynb) runs the full pipeline on a single gpu, covers local and remote paths; the remote cell already points at the Modal URL with `OPENENV_API_KEY=wowowow`
 - **one-line reproduction**: [`Makefile`](./Makefile) with `make gold`, `make bench`, `make eval`, `make dry`, `make train`, `make train-remote`
 - **pitch + storytelling**: [`docs/pitch.md`](./docs/pitch.md), [`docs/hf_blog.md`](./docs/hf_blog.md), [`docs/video_script.md`](./docs/video_script.md)
 - **deploy paths**: [`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md), [`docs/hf_jobs.md`](./docs/hf_jobs.md)
@@ -338,6 +328,24 @@ on the http path, when an episode ends the current sandbox is cleaned up immedia
 
 ## api reference
 
+### authentication
+
+all mutation endpoints (`POST /reset`, `POST /step`, `POST /web/reset`, `POST /web/step`) and the websocket (`WS /ws`) are protected by an optional bearer token when the server is started with `OPENENV_API_KEY` set.
+
+```http
+Authorization: Bearer wowowow
+```
+
+for the websocket, pass the token as a query parameter instead:
+
+```
+/ws?task_id=hpc_outage&token=wowowow
+```
+
+`GET /health`, `GET /tasks`, `GET /state`, and `GET /web/metadata` are always public. if `OPENENV_API_KEY` is unset, the server accepts all requests without authentication.
+
+the live modal deployment uses `OPENENV_API_KEY=wowowow` (set via a modal secret named `sysadmin-env-secrets`). pass `--env-api-key wowowow` (or set `OPENENV_API_KEY=wowowow`) to `training/hpc_openenv_gemma.py` and `inference.py` so they include the header automatically.
+
 ### http routes
 
 #### `GET /health`
@@ -507,13 +515,15 @@ each task is defined as a prepared lower filesystem plus a mutable episode runti
 
 `Sandbox` in `sysadmin_env/sandbox.py`:
 
-- verifies that `bwrap` is available
+- prefers `bwrap` for strong isolation; probes whether it can create namespaces at runtime (not just whether it is present — managed runtimes like Modal have bwrap installed but deny `CLONE_NEWUSER`)
+- falls back transparently to `proot -R {merged}` when bwrap is non-functional
 - creates a writable overlay-backed runtime root
 - binds selected host binaries read-only into the sandbox
+- on proot path: adds explicit `-b {merged}/run:/run` and `-b {merged}/etc/resolv.conf:/etc/resolv.conf` binds so task writes stay in the overlay rather than leaking into the host tmpfs or the host's read-only `/etc/resolv.conf` bind-mount
 - clears the environment and sets a small deterministic `PATH`
 - runs as uid `0` and gid `0`
 - drops all linux capabilities
-- optionally unshares networking for tasks that require isolation
+- optionally unshares networking for tasks that require isolation (bwrap only; proot does not unshare)
 
 task modules write stub binaries into the lower filesystem, such as `nginx`, `df`, `du`, `ip`, `ping`, `service`, and `systemctl`. this gives the benchmark realistic command semantics while keeping the task fully deterministic and cheap to reset.
 
@@ -737,9 +747,9 @@ notably, the grader does **not** require an actual successful `ping` command aft
 
 **relevant task-local command stubs**
 
-- `ssh` — bash stub that validates the target host under `/nodes/` and execs a nested `bwrap` that rebinds `/nodes/$TARGET` as `/`, sets `HOSTNAME` and `PS1`, and drops the agent into `/bin/bash`
+- `ssh` — bash stub that validates the target host under `/nodes/` and runs a nested sandbox. prefers `bwrap` (binds `/nodes/$TARGET` as `/`, sets `HOSTNAME`/`PS1`, drops into `/bin/bash`); on managed runtimes where bwrap cannot create namespaces, probes via `bwrap --ro-bind / / -- /bin/true` and falls back to `proot -R /nodes/$TARGET` with host `/bin`, `/usr/bin`, `/lib`, `/usr/lib` etc. bound in so bash and python are available
 - `sinfo` / `squeue` — python stubs that read `slurm_state.json` under `fcntl.LOCK_SH` and print formatted terminal tables
-- `systemctl` — python stub that mutates `slurm_state.json` under `fcntl.LOCK_EX`. `systemctl restart slurmd` on `compute-01` only transitions the node to `idle` if the route file is fixed
+- `systemctl` — python stub that mutates `slurm_state.json` under `fcntl.LOCK_EX`. `systemctl restart slurmd@compute-01` — with the `@compute-01` suffix explicit — transitions the node to `idle` if the route file is fixed; works from the login node regardless of container hostname, so no nested ssh session is required to solve the task
 - `scontrol` — minimal python stub for `scontrol show node` and `scontrol update` interactions
 - `curl` — minimal in-sandbox http client that speaks to the local ood daemon
 - `ood_server.py` — background http daemon on port `8080`. returns `200` when the route file matches the expected contents and `502` otherwise
@@ -785,8 +795,9 @@ the episode ends successfully when both indicators are `1`.
 
 - resets stay well under 10 ms because `OverlayFSManager` pins `upperdir` and `workdir` to `/dev/shm`. only the merged mount point lives on disk and the lowerdir is read-only host state
 - multi-node lateral movement is simulated without `veth` pairs or `CLONE_NEWNET`. `ssh` is a nested `bwrap` that rebinds `/nodes/$TARGET` as `/` while re-binding `/mnt/shared` so the slurm state file remains coherent across nodes
-- nested sandboxing requires the primary sandbox to run with `--unshare-user` and `--cap-add CAP_SYS_ADMIN`, enabled per task via `TaskScenarioDefinition.allows_nested_sandbox`
+- nested sandboxing requires the primary sandbox to run with `--unshare-user` and `--cap-add CAP_SYS_ADMIN`, enabled per task via `TaskScenarioDefinition.allows_nested_sandbox`; on proot-only runtimes (e.g. Modal) the `ssh` stub uses a proot nested environment instead
 - evaluation is deterministic and reads only explicit filesystem state; no real daemons are spawned by the grader path
+- **all nine tasks are fully solvable on the live modal deployment** — verified end-to-end on apr 24 2026 with gold trajectories, each reaching `health=1.0`
 
 ## reward and scoring system
 
@@ -1200,19 +1211,21 @@ python -m training.train_hpc_outage \
 on a kaggle p100 / t4 drop to `--model Qwen/Qwen2.5-Coder-3B-Instruct`
 and `--group-size 2`. on an a100 the 7b fits fine with 4-bit qlora.
 
-### remote, against hosted openenv spaces
+### remote, against the live modal deployment
 
 this matches the shape of the trl + openenv launch example
 (`examples/scripts/openenv/carla_vlm_gemma.py`): point `--env-urls` at
-one or more hf spaces hosting the openenv server, the rollout pool
-round-robins for throughput. we swap the launch example's gemma-4
-policy for a code-tuned qwen2.5-coder-7b which emits well-formed shell
-commands out of the box and keeps grpo from burning samples on format
-discovery.
+the modal endpoint (or any other hosted server). we swap the launch
+example's gemma-4 policy for a code-tuned qwen2.5-coder-7b which emits
+well-formed shell commands out of the box and keeps grpo from burning
+samples on format discovery.
 
 ```bash
+export OPENENV_API_KEY=wowowow
+
 python -m training.hpc_openenv_gemma \
-    --env-urls https://huggingmenfordays-enterprise-hpc-openenv.hf.space \
+    --env-urls https://theboisalbum--sysadmin-env-serve.modal.run \
+    --env-api-key $OPENENV_API_KEY \
     --model Qwen/Qwen2.5-Coder-7B-Instruct \
     --group-size 4 --max-turns 24 --num-train-steps 200 \
     --curriculum --save-adapter-only \
@@ -1227,11 +1240,22 @@ format compliance right. the server's per-episode session store lets
 you point `--group-size 4+` at a **single** space without the episode
 state-clobbering bug that was present in pre-apr-23 builds.
 
+### kaggle / colab notebook
+
+open [`training/hpc_colab.ipynb`](./training/hpc_colab.ipynb). the relevant cells are pre-configured for the modal endpoint:
+
+- set `ENV_URL = "https://theboisalbum--sysadmin-env-serve.modal.run"`
+- `OPENENV_API_KEY=wowowow` is read from kaggle secrets (or set inline)
+- training command already includes `--env-api-key $OPENENV_API_KEY`
+
+on a kaggle p100 / t4 drop to `--model Qwen/Qwen2.5-Coder-3B-Instruct` and `--group-size 2`. on an a100 the 7b fits fine with 4-bit qlora.
+
 ### managed hf jobs
 
 ```bash
 python -m training.hf_jobs \
-    --env-urls https://<user>-enterprise-hpc-openenv.hf.space \
+    --env-urls https://theboisalbum--sysadmin-env-serve.modal.run \
+    --env-api-key wowowow \
     --gpu a10g-large \
     --num-train-steps 300 \
     --hub-repo <user>/hpc-grpo-runs
@@ -1275,7 +1299,7 @@ make bench       # reset latency
 make eval        # policy leaderboard
 make dry         # training rollout smoke test, no gpu
 make train       # local grpo with qwen2.5-coder-7b (override with MODEL=...)
-make train-remote ENV_URLS=https://<user>-enterprise-hpc-openenv.hf.space
+make train-remote ENV_URLS=https://theboisalbum--sysadmin-env-serve.modal.run
 ```
 
 ## validation flow
@@ -1311,7 +1335,11 @@ the script performs four checks in sequence:
 3. local `docker build`
 4. local `openenv validate`
 
-use the runtime url ending in `.hf.space`, not the repository page url under `huggingface.co/spaces/...`.
+pass the modal url for smoke-testing the live server:
+
+```bash
+bash scripts/validate-submission.sh https://theboisalbum--sysadmin-env-serve.modal.run .
+```
 
 ## docker and deployment flow
 
@@ -1333,60 +1361,61 @@ both `Dockerfile` and `server/Dockerfile`:
 - run `pip install .` (pulls all loose-pinned runtime deps)
 - start the environment with the `server` console script on `PATH`
 
-### hugging face deployment
+### modal deployment (current live backend)
 
-the repository is prepared for a hugging face docker space, and a
-reference deployment already lives at
-[`huggingmenfordays/enterprise-hpc-openenv`](https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv)
-(public url: `https://huggingmenfordays-enterprise-hpc-openenv.hf.space`).
-
-key points:
-
-- the readme front matter declares `sdk: docker`
-- `Dockerfile` is suitable for space runtime startup
-- `openenv.yaml` declares `inference.py` as the benchmark entrypoint and `server.app:app` as the server entrypoint
-- the root shims (`client.py`, `models.py`, `__init__.py`) and `server/Dockerfile` are present because openenv repository checks expect this structure after an `openenv init` style workflow
-
-typical flow:
-
-1. build and test locally
-2. run `openenv validate`
-3. push the repository or space update (recipe below)
-4. wait for the hugging face space to become healthy
-5. run `bash scripts/validate-submission.sh https://your-space.hf.space .`
-6. run your agent against the live deployment via `inference.py`
-
-#### pushing updates to the live space (orphan-branch recipe)
-
-this repo carries `.venv/` and `docs/assets/*.png` binaries in git
-history that hf xet refuses to accept. a plain
-`git push space final-round:main` gets rejected with
-`pre-receive hook declined / your push was rejected because it contains binary files`.
-use the orphan-branch force-push instead:
+the primary hosted backend runs on modal labs at
+`https://theboisalbum--sysadmin-env-serve.modal.run`.
 
 ```bash
-hf auth login                                                                  # refresh write token
+# one-time setup
+pip install modal
+modal token new          # authenticate
 
-git remote set-url space https://huggingface.co/spaces/huggingmenfordays/enterprise-hpc-openenv
+# deploy / redeploy
+modal deploy modal_app.py
 
+# smoke-test
+curl https://theboisalbum--sysadmin-env-serve.modal.run/health
+curl -H "Authorization: Bearer wowowow" \
+     https://theboisalbum--sysadmin-env-serve.modal.run/tasks
+```
+
+the modal image is defined in [`modal_app.py`](./modal_app.py):
+
+- base: `modal.Image.debian_slim(python_version="3.13")`
+- apt packages: `bubblewrap proot fuse-overlayfs procps iputils-ping findutils curl ca-certificates`
+- copies the entire repo at build time and runs `pip install .`
+- `min_containers=1` ensures the first request does not cold-start; `timeout=3600`; `@modal.concurrent(max_inputs=16)`
+- api key is read from a modal secret named `sysadmin-env-secrets` (key: `OPENENV_API_KEY`)
+
+#### api key setup
+
+```bash
+modal secret create sysadmin-env-secrets OPENENV_API_KEY=wowowow
+```
+
+or omit the secret entirely — when `OPENENV_API_KEY` is unset, the server runs without authentication.
+
+### hugging face deployment (openenv submission artifact)
+
+the `Dockerfile`, `server/Dockerfile`, `openenv.yaml`, and root shims (`client.py`, `models.py`, `__init__.py`) are retained so that `openenv validate` and `openenv push` work correctly. hugging face spaces are **not used as the live backend** (automated scanners flag the sandboxing tools); modal is the live deployment.
+
+if you do need to push to a hf space (e.g. for the openenv submission endpoint check), use the orphan-branch recipe to avoid xet rejecting the binary files:
+
+```bash
+hf auth login
 git checkout --orphan space-deploy
 git rm -rf --cached .
-rm -f docs/assets/reward_curve_demo.png                                        # drop any binary that would re-trip xet
+rm -f docs/assets/reward_curve_demo.png
 git add -A
 git commit -m "deploy: clean snapshot for hf space"
 git push space space-deploy:main --force
-
 git checkout final-round
 git branch -D space-deploy
-git checkout HEAD -- docs/assets/reward_curve_demo.png                         # restore the png locally
+git checkout HEAD -- docs/assets/reward_curve_demo.png
 ```
 
-this force-pushes a one-commit history-less snapshot to the space's
-`main` branch; your local `final-round` history is untouched. the
-docker build takes 5 – 10 min, then `curl <space>/health` should return
-`{"status":"ok"}`. the same recipe is documented in
-[`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md) §2.1 and
-[`TODO_FOR_USER.md`](./TODO_FOR_USER.md) §2.
+the same recipe is documented in [`docs/hf_spaces_deploy.md`](./docs/hf_spaces_deploy.md).
 
 ### openenv submission commands
 
@@ -1437,17 +1466,21 @@ so the benchmark strongly rewards:
 
 ## limitations and portability notes
 
-### overlay mount constraints on hugging face and other managed runtimes
+### sandbox constraints on managed runtimes
 
-managed container platforms often restrict privileged mount operations. in practice, hugging face docker spaces may not allow kernel overlay mounts, and some environments may also lack a usable `fuse-overlayfs` path.
+managed container platforms restrict linux namespace creation. the sandbox stack handles this with two independent fallback ladders:
 
-`sysadmin_env/overlayfs.py` handles this explicitly:
-
+**filesystem isolation (`sysadmin_env/overlayfs.py`)**
 1. try kernel overlayfs
 2. if that fails, try `fuse-overlayfs`
-3. if that also fails, use a plain directory copy fallback
+3. if that also fails, use a plain directory copy fallback (verified working on modal, p50 ≈ 2.40 ms)
 
-the fallback is important because it preserves correctness even when the faster mount strategies are unavailable.
+**command execution (`sysadmin_env/sandbox.py`)**
+1. probe whether bwrap can create a user namespace (`bwrap --ro-bind / / -- /bin/true`)
+2. if bwrap works, use it for full isolation
+3. if bwrap fails (e.g. `Operation not permitted` on modal/kaggle), fall back to `proot -R {merged}` — fully functional; all nine tasks are solvable with proot
+
+the two ladders are independent: copy-fallback overlayfs works with bwrap, and fuse-overlayfs works with proot, in any combination.
 
 ### what the copy fallback means
 
