@@ -1,3 +1,14 @@
+# STATUS
+DEPLOYMENT BLOCKED ON HUGGINGFACE SPACES
+
+Core environment, task logic, and agent loop are fully functional and validated locally and on Modal.
+
+However, Hugging Face Spaces imposes sandboxing restrictions (notably blocking tools like `bwrap`, `unshare`, and certain namespace operations) which are required for the sysadmin-style isolation layer.
+
+This prevents the environment from executing correctly despite being otherwise stable.
+
+Workarounds are being explored, but current limitations are platform-imposed rather than architectural.
+---
 # sysadmin-env
 
 `sysadmin-env` is an openenv-style benchmark environment for openenv round 1: an agent connects to a live linux-like runtime, inspects a broken machine, issues one shell command at a time, receives stepwise observations and shaped rewards, and is judged on whether it restores the service safely and efficiently.
